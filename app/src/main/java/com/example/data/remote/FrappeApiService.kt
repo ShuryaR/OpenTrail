@@ -1,7 +1,7 @@
 package com.example.data.remote
 
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -19,6 +19,12 @@ interface FrappeApiService {
 
     @GET("api/method/frappe.auth.get_logged_user")
     suspend fun getLoggedUser(): Response<FrappeMessageResponse>
+
+    @GET("crm")
+    suspend fun fetchCrmPage(): Response<ResponseBody>
+
+    @GET("app")
+    suspend fun fetchAppPage(): Response<ResponseBody>
 
     @GET("api/resource/{doctype}")
     suspend fun listResources(
@@ -45,10 +51,6 @@ interface FrappeApiService {
     @Multipart
     @POST("api/method/upload_file")
     suspend fun uploadPrivateFile(
-        @Part file: MultipartBody.Part,
-        @Part("is_private") isPrivate: RequestBody,
-        @Part("doctype") doctype: RequestBody? = null,
-        @Part("docname") docname: RequestBody? = null,
-        @Part("folder") folder: RequestBody? = null
+        @Part parts: List<MultipartBody.Part>
     ): Response<FrappeUploadEnvelope>
 }

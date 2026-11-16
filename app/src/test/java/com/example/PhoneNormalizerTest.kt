@@ -21,4 +21,17 @@ class PhoneNormalizerTest {
         assertEquals("01:05", PhoneNormalizer.formatDuration(65))
         assertEquals("12:30", PhoneNormalizer.formatDuration(750))
     }
+
+    @Test
+    fun `formats phone numbers into readable chunks`() {
+        assertEquals("+91 98765 43210", PhoneNormalizer.formatDisplay("+919876543210"))
+        assertEquals("98765 43210", PhoneNormalizer.formatDisplay("9876543210"))
+        assertEquals("+1 (415) 555-1234", PhoneNormalizer.formatDisplay("+14155551234"))
+    }
+
+    @Test
+    fun `sanitizes messy pasted dialer inputs liberally`() {
+        assertEquals("+919876543210", PhoneNormalizer.sanitizeDialInput(" +91 (987) 654-3210 "))
+        assertEquals("*123#", PhoneNormalizer.sanitizeDialInput("call *123# now"))
+    }
 }

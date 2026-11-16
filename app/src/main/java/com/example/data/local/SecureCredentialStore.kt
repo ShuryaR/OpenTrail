@@ -74,6 +74,7 @@ data class AuthSession(
     val apiKey: String = "",
     val apiSecret: String = "",
     val sessionCookie: String = "",
+    val csrfToken: String = "",
     val loggedInUser: String = "",
     val authMode: AuthMode = AuthMode.API_TOKEN
 ) {
@@ -91,7 +92,8 @@ data class AppSettings(
     val workSimPreference: WorkSimPreference = WorkSimPreference.ANY,
     val onboardingCompleted: Boolean = false,
     val vowifiTipDismissed: Boolean = false,
-    val lastSyncEpochMs: Long = 0L
+    val lastSyncEpochMs: Long = 0L,
+    val dailyCallGoal: Int = 20
 )
 
 /**
@@ -110,6 +112,7 @@ class SecureCredentialStore(private val context: Context) {
         private val KEY_ENC_API_KEY = stringPreferencesKey("enc_api_key")
         private val KEY_ENC_API_SECRET = stringPreferencesKey("enc_api_secret")
         private val KEY_ENC_SESSION_COOKIE = stringPreferencesKey("enc_session_cookie")
+        private val KEY_ENC_CSRF_TOKEN = stringPreferencesKey("enc_csrf_token")
         private val KEY_LOGGED_IN_USER = stringPreferencesKey("logged_in_user")
         private val KEY_AUTH_MODE = stringPreferencesKey("auth_mode")
         private val KEY_AUDIO_SOURCE = stringPreferencesKey("audio_source")
@@ -119,6 +122,7 @@ class SecureCredentialStore(private val context: Context) {
         private val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
         private val KEY_VOWIFI_DISMISSED = booleanPreferencesKey("vowifi_dismissed")
         private val KEY_LAST_SYNC_MS = longPreferencesKey("last_sync_ms")
+        private val KEY_DAILY_CALL_GOAL = intPreferencesKey("daily_call_goal")
     }
 
     val authSessionFlow: Flow<AuthSession> = context.oneBookDataStore.data.map { prefs ->
@@ -127,6 +131,7 @@ class SecureCredentialStore(private val context: Context) {
             apiKey = decrypt(prefs[KEY_ENC_API_KEY]),
             apiSecret = decrypt(prefs[KEY_ENC_API_SECRET]),
             sessionCookie = decrypt(prefs[KEY_ENC_SESSION_COOKIE]),
+            csrfToken = decrypt(prefs[KEY_ENC_CSRF_TOKEN]),
             loggedInUser = prefs[KEY_LOGGED_IN_USER].orEmpty(),
             authMode = prefs[KEY_AUTH_MODE]?.let { runCatching { AuthMode.valueOf(it) }.getOrNull() }
                 ?: AuthMode.API_TOKEN
@@ -141,7 +146,8 @@ class SecureCredentialStore(private val context: Context) {
             workSimPreference = WorkSimPreference.fromSlot(prefs[KEY_WORK_SIM_SLOT] ?: -1),
             onboardingCompleted = prefs[KEY_ONBOARDING_DONE] ?: false,
             vowifiTipDismissed = prefs[KEY_VOWIFI_DISMISSED] ?: false,
-            lastSyncEpochMs = prefs[KEY_LAST_SYNC_MS] ?: 0L
+            lastSyncEpochMs = prefs[KEY_LAST_SYNC_MS] ?: 0L,
+            dailyCallGoal = (prefs[KEY_DAILY_CALL_GOAL] ?: 20).coerceIn(5, 200)
         )
     }
 
@@ -161,6 +167,7 @@ class SecureCredentialStore(private val context: Context) {
             prefs[KEY_ENC_API_KEY] = encrypt(apiKey.trim())
             prefs[KEY_ENC_API_SECRET] = encrypt(apiSecret.trim())
             prefs.remove(KEY_ENC_SESSION_COOKIE)
+            prefs.remove(KEY_ENC_CSRF_TOKEN)
             prefs[KEY_LOGGED_IN_USER] = loggedInUser
             prefs[KEY_AUTH_MODE] = AuthMode.API_TOKEN.name
         }
@@ -169,12 +176,14 @@ class SecureCredentialStore(private val context: Context) {
     suspend fun saveSessionCredentials(
         baseUrl: String,
         sessionCookie: String,
+        csrfToken: String,
         loggedInUser: String
     ) {
         val cleanUrl = normalizeUrl(baseUrl)
         context.oneBookDataStore.edit { prefs ->
             prefs[KEY_BASE_URL] = cleanUrl
             prefs[KEY_ENC_SESSION_COOKIE] = encrypt(sessionCookie)
+            prefs[KEY_ENC_CSRF_TOKEN] = encrypt(csrfToken)
             prefs.remove(KEY_ENC_API_KEY)
             prefs.remove(KEY_ENC_API_SECRET)
             prefs[KEY_LOGGED_IN_USER] = loggedInUser
@@ -188,6 +197,7 @@ class SecureCredentialStore(private val context: Context) {
             prefs.remove(KEY_ENC_API_KEY)
             prefs.remove(KEY_ENC_API_SECRET)
             prefs.remove(KEY_ENC_SESSION_COOKIE)
+            prefs.remove(KEY_ENC_CSRF_TOKEN)
             prefs.remove(KEY_LOGGED_IN_USER)
             prefs.remove(KEY_AUTH_MODE)
             prefs[KEY_ONBOARDING_DONE] = false
@@ -220,6 +230,10 @@ class SecureCredentialStore(private val context: Context) {
 
     suspend fun setLastSyncEpochMs(epochMs: Long) {
         context.oneBookDataStore.edit { it[KEY_LAST_SYNC_MS] = epochMs }
+    }
+
+    suspend fun setDailyCallGoal(goal: Int) {
+        context.oneBookDataStore.edit { it[KEY_DAILY_CALL_GOAL] = goal.coerceIn(5, 200) }
     }
 
     private fun normalizeUrl(raw: String): String {

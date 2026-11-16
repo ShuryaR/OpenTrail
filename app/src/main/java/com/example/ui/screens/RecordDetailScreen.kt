@@ -64,6 +64,7 @@ import com.example.data.local.CallLogEntity
 import com.example.data.local.CrmNoteEntity
 import com.example.ui.components.InlineAudioPlayer
 import com.example.ui.theme.JetBrainsMono
+import com.example.ui.theme.SignalGreen
 import com.example.ui.viewmodel.RecordDetailViewModel
 import com.example.util.PhoneNormalizer
 import java.text.SimpleDateFormat
@@ -122,8 +123,8 @@ fun RecordDetailScreen(
                 onClick = { viewModel.placeCall(context) },
                 icon = { Icon(Icons.Filled.Call, contentDescription = null) },
                 text = { Text("Call via SIM") },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
+                containerColor = SignalGreen,
+                contentColor = androidx.compose.ui.graphics.Color.White,
                 modifier = Modifier.testTag("detail_call_fab")
             )
         }
@@ -197,7 +198,7 @@ fun RecordDetailScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = state.primaryPhone,
+                                        text = PhoneNormalizer.formatDisplay(state.primaryPhone),
                                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMono)
                                     )
                                 }
@@ -329,8 +330,8 @@ private fun NoteCard(note: CrmNoteEntity) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -374,15 +375,15 @@ private fun CallTimelineCard(
     }
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

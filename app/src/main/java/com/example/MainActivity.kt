@@ -85,7 +85,11 @@ private fun OneBookNavRoot(app: OneBookApplication) {
 
     val navController = rememberNavController()
     val pipelineViewModel: PipelineViewModel = viewModel(
-        factory = PipelineViewModel.Factory(app.repository, app.database.callLogDao())
+        factory = PipelineViewModel.Factory(
+            app.repository,
+            app.database.callLogDao(),
+            app.audioPlaybackManager
+        )
     )
 
     LaunchedEffect(pendingWrapUpId) {

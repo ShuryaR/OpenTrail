@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +39,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -76,7 +79,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsSyncScreen(
     viewModel: SettingsSyncViewModel,
@@ -193,6 +196,31 @@ fun SettingsSyncScreen(
                                         onRetry = { viewModel.retryCallLog(item.id) }
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Daily Call Goal Selector (Goal-Gradient Effect)
+                item {
+                    SectionCard(title = "Daily Call Goal") {
+                        Text(
+                            text = "Set your daily SIM call target shown on the Recents momentum bar.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val goalOptions = listOf(10, 20, 25, 40, 50)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            goalOptions.forEach { target ->
+                                FilterChip(
+                                    selected = state.settings.dailyCallGoal == target,
+                                    onClick = { viewModel.setDailyCallGoal(target) },
+                                    label = { Text("$target calls") },
+                                    modifier = Modifier.testTag("daily_goal_chip_$target")
+                                )
                             }
                         }
                     }
@@ -352,10 +380,10 @@ fun SettingsSyncScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(item.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    text = item.displayPhone,
+                                    text = PhoneNormalizer.formatDisplay(item.displayPhone),
                                     style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -476,9 +504,12 @@ private fun SyncQueueRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
-                    text = item.matchedName ?: item.phoneNumber,
+                    text = item.matchedName ?: PhoneNormalizer.formatDisplay(item.phoneNumber),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )

@@ -45,10 +45,10 @@ Sales reps can authenticate using either **API Token** (recommended) or **Email 
 
 Every `.m4a` recording uploaded by `CallSyncWorker` uses `POST /api/method/upload_file` with:
 - `is_private = 1` (ensures recordings are served via `/private/files/...` and require Frappe authentication—never publicly accessible).
-- `folder = "Home/Call Recordings"`
-- `doctype` and `docname` attached when the phone number matched a `CRM Lead`, `CRM Deal`, or `Contact`.
+- `doctype` and `docname` attached when the phone number matched a `CRM Lead`, `CRM Deal`, or `Contact` (automatically retrying as a standalone private upload in `Home` if the parent DocType rejects direct file attachment).
+- `X-Frappe-CSRF-Token` automatically extracted and attached for Email/Password (`sid` cookie) sessions.
 
-The returned `file_url` is immediately linked to the `recording_url` field on the newly created **CRM Call Log** so the recording plays inline directly inside Frappe CRM's activity timeline.
+The returned `file_url` is immediately linked to the `recording_url` field on the newly created **CRM Call Log** (with `id`, `start_time`, `end_time`, and linked `CRM Note`) so the recording plays inline directly inside Frappe CRM's activity timeline.
 
 ---
 

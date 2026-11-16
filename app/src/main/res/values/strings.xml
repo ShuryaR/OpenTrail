@@ -36,10 +36,16 @@
     <string name="health_action_needed">Action Needed: Re-enable Accessibility</string>
 
     <!-- Navigation Tabs -->
+    <string name="tab_recents">Recents</string>
     <string name="tab_tasks">Tasks</string>
     <string name="tab_leads">Leads</string>
     <string name="tab_deals">Deals</string>
     <string name="tab_contacts">Contacts</string>
+
+    <!-- Dialer & Daily Goal -->
+    <string name="dialer_title">SIM Dialer</string>
+    <string name="dialer_call_action">Call via SIM</string>
+    <string name="sync_confirmed">Synced to Frappe CRM</string>
 
     <!-- Post-Call Sheet -->
     <string name="post_call_title">Quick Call Wrap-Up</string>

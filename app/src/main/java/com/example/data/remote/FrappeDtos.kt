@@ -66,3 +66,44 @@ fun Map<String, Any?>.integer(vararg keys: String): Int {
     }
     return 0
 }
+
+private val errorMoshi: com.squareup.moshi.Moshi by lazy {
+    com.squareup.moshi.Moshi.Builder().build()
+}
+
+fun extractFrappeError(httpCode: Int, errorBody: String?): String {
+    if (errorBody.isNullOrBlank()) return "HTTP $httpCode"
+    return runCatching {
+        val mapAdapter = errorMoshi.adapter<Map<String, Any?>>(
+            com.squareup.moshi.Types.newParameterizedType(
+                Map::class.java,
+                String::class.java,
+                Any::class.java
+            )
+        )
+        val json = mapAdapter.fromJson(errorBody) ?: return@runCatching "HTTP $httpCode: ${errorBody.take(160)}"
+        val serverMsgs = json["_server_messages"]?.toString()
+        if (!serverMsgs.isNullOrBlank()) {
+            val listAdapter = errorMoshi.adapter<List<Any?>>(
+                com.squareup.moshi.Types.newParameterizedType(List::class.java, Any::class.java)
+            )
+            val arr = listAdapter.fromJson(serverMsgs)
+            val first = arr?.firstOrNull()?.toString()
+            if (!first.isNullOrBlank()) {
+                val innerMap = runCatching { mapAdapter.fromJson(first) }.getOrNull()
+                val innerMsg = innerMap?.get("message")?.toString()
+                if (!innerMsg.isNullOrBlank()) {
+                    val clean = innerMsg.replace(Regex("<[^>]*>"), "").trim()
+                    if (clean.isNotBlank()) return "HTTP $httpCode: $clean"
+                }
+            }
+        }
+        val excType = json["exc_type"]?.toString()?.trim().orEmpty()
+        val msg = json["message"]?.toString()?.trim().orEmpty()
+        val exception = json["exception"]?.toString()?.trim().orEmpty()
+        val detail = listOf(excType, msg, exception).firstOrNull { it.isNotBlank() && it != "null" }
+        if (!detail.isNullOrBlank()) "HTTP $httpCode: ${detail.take(180)}" else "HTTP $httpCode"
+    }.getOrElse {
+        "HTTP $httpCode: ${errorBody.take(160)}"
+    }
+}

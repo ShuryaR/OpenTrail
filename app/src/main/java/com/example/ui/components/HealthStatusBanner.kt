@@ -3,7 +3,6 @@ package com.example.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,14 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
-import com.example.ui.theme.AlertRed
-import com.example.ui.theme.AlertRedDark
-import com.example.ui.theme.AlertRedLight
-import com.example.ui.theme.AlertRedTextDark
-import com.example.ui.theme.HealthGreen
-import com.example.ui.theme.HealthGreenBgDark
-import com.example.ui.theme.HealthGreenBgLight
-import com.example.ui.theme.HealthGreenTextDark
 
 @Composable
 fun HealthStatusBanner(
@@ -47,23 +38,19 @@ fun HealthStatusBanner(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()
-
     val bgColor by animateColorAsState(
-        targetValue = when {
-            isHealthy && isDark -> HealthGreenBgDark
-            isHealthy -> HealthGreenBgLight
-            isDark -> AlertRedDark
-            else -> AlertRedLight
+        targetValue = if (isHealthy) {
+            MaterialTheme.colorScheme.tertiaryContainer
+        } else {
+            MaterialTheme.colorScheme.errorContainer
         },
         label = "health_bg"
     )
     val contentColor by animateColorAsState(
-        targetValue = when {
-            isHealthy && isDark -> HealthGreenTextDark
-            isHealthy -> HealthGreen
-            isDark -> AlertRedTextDark
-            else -> AlertRed
+        targetValue = if (isHealthy) {
+            MaterialTheme.colorScheme.onTertiaryContainer
+        } else {
+            MaterialTheme.colorScheme.onErrorContainer
         },
         label = "health_fg"
     )
@@ -76,12 +63,12 @@ fun HealthStatusBanner(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         color = bgColor,
-        border = BorderStroke(1.dp, contentColor.copy(alpha = 0.35f))
+        border = BorderStroke(1.dp, contentColor.copy(alpha = 0.25f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -114,7 +101,7 @@ fun HealthStatusBanner(
                 if (pendingSyncCount > 0) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = contentColor.copy(alpha = 0.16f)
+                        color = contentColor.copy(alpha = 0.14f)
                     ) {
                         Text(
                             text = "$pendingSyncCount queued",
@@ -123,7 +110,7 @@ fun HealthStatusBanner(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                 }
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,

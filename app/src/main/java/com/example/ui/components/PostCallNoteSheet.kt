@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.local.CallLogEntity
 import com.example.ui.theme.JetBrainsMono
+import com.example.ui.theme.SignalGreen
 import com.example.util.PhoneNormalizer
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -109,8 +111,10 @@ fun PostCallNoteSheet(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        val callerLabel = callLog.matchedName ?: PhoneNormalizer.formatDisplay(callLog.phoneNumber)
                         Text(
-                            text = "${callLog.matchedName ?: callLog.phoneNumber} • ${PhoneNormalizer.formatDuration(callLog.durationSeconds)}",
+                            text = "$callerLabel • ${PhoneNormalizer.formatDuration(callLog.durationSeconds)}",
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = JetBrainsMono),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -200,11 +204,15 @@ fun PostCallNoteSheet(
 
             Button(
                 onClick = { onSave(selectedDisposition, noteText, followUpDate) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = SignalGreen,
+                    contentColor = androidx.compose.ui.graphics.Color.White
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .height(54.dp)
                     .testTag("wrap_up_save_button"),
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Text(
                     text = stringResource(R.string.post_call_save),

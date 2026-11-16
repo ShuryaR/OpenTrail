@@ -139,7 +139,7 @@ fun LoginScreen(
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                     modifier = Modifier.testTag("auth_mode_api_token")
                 ) {
-                    Text(stringResource(R.string.login_mode_api_key))
+                    Text("${stringResource(R.string.login_mode_api_key)} (Recommended)")
                 }
                 SegmentedButton(
                     selected = authMode == AuthMode.SESSION_COOKIE,
@@ -159,8 +159,8 @@ fun LoginScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     OutlinedTextField(
                         value = crmUrl,

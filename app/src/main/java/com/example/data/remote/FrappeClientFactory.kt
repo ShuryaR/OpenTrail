@@ -37,6 +37,12 @@ object FrappeClientFactory {
                     if (session.sessionCookie.isNotBlank()) {
                         requestBuilder.header("Cookie", session.sessionCookie)
                     }
+                    if (session.csrfToken.isNotBlank()) {
+                        requestBuilder.header("X-Frappe-CSRF-Token", session.csrfToken)
+                    }
+                    if (session.baseUrl.isNotBlank()) {
+                        requestBuilder.header("Origin", session.baseUrl)
+                    }
                 }
             }
             chain.proceed(requestBuilder.build())

@@ -106,6 +106,10 @@ class SettingsSyncViewModel(
         viewModelScope.launch { repository.credentialStore.setWorkSimPreference(pref) }
     }
 
+    fun setDailyCallGoal(goal: Int) {
+        viewModelScope.launch { repository.credentialStore.setDailyCallGoal(goal) }
+    }
+
     fun addExcludedNumber(phone: String, label: String) {
         if (phone.isBlank()) return
         viewModelScope.launch {

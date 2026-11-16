@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.data.local.AppDatabase
+import com.example.data.local.AuthMode
 import com.example.data.local.AuthSession
 import com.example.data.local.CallDirection
 import com.example.data.local.CallLogEntity
@@ -20,20 +21,24 @@ import com.example.data.local.PrivacyFilterMode
 import com.example.data.local.SecureCredentialStore
 import com.example.data.local.SyncStatus
 import com.example.data.local.TaskEntity
+import com.example.data.remote.FrappeApiService
 import com.example.data.remote.FrappeClientFactory
 import com.example.data.remote.FrappeLoginRequest
 import com.example.data.remote.dbl
+import com.example.data.remote.extractFrappeError
 import com.example.data.remote.integer
 import com.example.data.remote.str
 import com.example.util.PhoneNormalizer
 import com.example.worker.CallSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -75,6 +80,9 @@ class CrmRepository(
     val pendingCallLogsFlow: Flow<List<CallLogEntity>> = callLogDao.observePendingOrFailed()
     val pendingCountFlow: Flow<Int> = callLogDao.observePendingCount()
     val excludedNumbersFlow: Flow<List<ExcludedNumberEntity>> = excludedNumberDao.observeAll()
+
+    private val _syncStage = MutableStateFlow<String?>(null)
+    val syncStageFlow: StateFlow<String?> = _syncStage.asStateFlow()
 
     fun observeLead(name: String): Flow<LeadEntity?> = leadDao.observeByName(name)
     fun observeDeal(name: String): Flow<DealEntity?> = dealDao.observeByName(name)
@@ -125,23 +133,58 @@ class CrmRepository(
             val service = FrappeClientFactory.createUnauthenticatedService(cleanUrl)
             val resp = service.login(FrappeLoginRequest(usr = email.trim(), pwd = password))
             if (resp.isSuccessful) {
-                val cookies = resp.headers().values("Set-Cookie")
-                val sidCookie = cookies
-                    .mapNotNull { header -> header.split(';').firstOrNull { it.trim().startsWith("sid=") } }
-                    .lastOrNull()
-                    ?.trim()
-                if (sidCookie.isNullOrBlank()) {
-                    RepoResult.Error("Login succeeded but no session cookie (sid) was returned.")
-                } else {
-                    credentialStore.saveSessionCredentials(cleanUrl, sidCookie, email.trim())
-                    RepoResult.Success(email.trim())
+                val rawCookies = resp.headers().values("Set-Cookie")
+                val cookiePairs = rawCookies
+                    .mapNotNull { header -> header.split(';').firstOrNull()?.trim() }
+                    .filter { it.contains('=') }
+                val hasSid = cookiePairs.any { it.startsWith("sid=") && !it.endsWith("=Guest") }
+                if (!hasSid) {
+                    return@withContext RepoResult.Error("Login succeeded but no valid session cookie (sid) was returned.")
                 }
+                val combinedCookies = cookiePairs.joinToString("; ")
+                val tempSession = AuthSession(
+                    baseUrl = cleanUrl,
+                    sessionCookie = combinedCookies,
+                    authMode = AuthMode.SESSION_COOKIE
+                )
+                val authedService = FrappeClientFactory.createService(tempSession)
+                val csrfToken = fetchCsrfToken(authedService)
+                val resolvedUser = runCatching {
+                    authedService.getLoggedUser().body()?.message?.takeIf { it.isNotBlank() }
+                }.getOrNull() ?: email.trim()
+
+                credentialStore.saveSessionCredentials(
+                    baseUrl = cleanUrl,
+                    sessionCookie = combinedCookies,
+                    csrfToken = csrfToken,
+                    loggedInUser = resolvedUser
+                )
+                RepoResult.Success(resolvedUser)
             } else {
-                RepoResult.Error("Invalid Frappe credentials (HTTP ${resp.code()}).")
+                val detail = extractFrappeError(resp.code(), resp.errorBody()?.string())
+                RepoResult.Error("Invalid Frappe credentials ($detail).")
             }
         }.getOrElse { e ->
             RepoResult.Error(e.localizedMessage ?: "Connection error reaching Frappe server.")
         }
+    }
+
+    private suspend fun fetchCsrfToken(service: FrappeApiService): String {
+        val regex = Regex("""csrf_token["']?\s*[:=]\s*["']([a-fA-F0-9]{16,})["']""")
+        for (fetcher in listOf<suspend () -> retrofit2.Response<okhttp3.ResponseBody>>(
+            { service.fetchCrmPage() },
+            { service.fetchAppPage() }
+        )) {
+            val body = runCatching {
+                val r = fetcher()
+                if (r.isSuccessful) r.body()?.string() else null
+            }.getOrNull()
+            if (!body.isNullOrBlank()) {
+                val match = regex.find(body)?.groupValues?.getOrNull(1)
+                if (!match.isNullOrBlank()) return match
+            }
+        }
+        return ""
     }
 
     suspend fun refreshAllPipeline(): RepoResult<Unit> = withContext(Dispatchers.IO) {
@@ -152,6 +195,7 @@ class CrmRepository(
         val service = FrappeClientFactory.createService(session)
 
         runCatching {
+            _syncStage.value = "Syncing CRM Leads…"
             // 1. Leads (CRM Lead with Lead fallback)
             val leadResp = service.listResources("CRM Lead").let {
                 if (it.isSuccessful) it else service.listResources("Lead")
@@ -182,6 +226,7 @@ class CrmRepository(
                 leadDao.upsertAll(leads)
             }
 
+            _syncStage.value = "Syncing Deals & Contacts…"
             // 2. Deals (CRM Deal with Opportunity fallback)
             val dealResp = service.listResources("CRM Deal").let {
                 if (it.isSuccessful) it else service.listResources("Opportunity")
@@ -264,6 +309,7 @@ class CrmRepository(
                 taskDao.upsertAll(tasks)
             }
 
+            _syncStage.value = "Syncing Tasks & Call Logs…"
             // 5. Recent CRM Call Logs
             val callResp = service.listResources("CRM Call Log", orderBy = "creation desc")
             if (callResp.isSuccessful) {
@@ -299,8 +345,10 @@ class CrmRepository(
             }
 
             credentialStore.setLastSyncEpochMs(System.currentTimeMillis())
+            _syncStage.value = null
             RepoResult.Success(Unit)
         }.getOrElse { e ->
+            _syncStage.value = null
             RepoResult.Error(e.localizedMessage ?: "Failed to sync Frappe CRM records.")
         }
     }
@@ -472,7 +520,7 @@ class CrmRepository(
         )
         if (!session.isAuthenticated) return@withContext RepoResult.Success(Unit)
 
-        val service = FrappeClientFactory.createService(session)
+        val (_, service) = ensureCsrfService(session)
         val payload = mapOf(
             "title" to title,
             "content" to content,
@@ -481,8 +529,23 @@ class CrmRepository(
         )
         runCatching {
             val resp = service.createResource("CRM Note", payload)
-            if (resp.isSuccessful) RepoResult.Success(Unit)
-            else RepoResult.Error("Saved locally; remote note failed (HTTP ${resp.code()}).")
+            if (resp.isSuccessful) {
+                RepoResult.Success(Unit)
+            } else if (resp.code() == 404) {
+                val fallbackResp = service.createResource(
+                    "Note",
+                    mapOf("title" to "$title ($docname)", "content" to content, "public" to 0)
+                )
+                if (fallbackResp.isSuccessful) {
+                    RepoResult.Success(Unit)
+                } else {
+                    val detail = extractFrappeError(fallbackResp.code(), fallbackResp.errorBody()?.string())
+                    RepoResult.Error("Saved locally; remote note failed ($detail).")
+                }
+            } else {
+                val detail = extractFrappeError(resp.code(), resp.errorBody()?.string())
+                RepoResult.Error("Saved locally; remote note failed ($detail).")
+            }
         }.getOrElse {
             RepoResult.Error("Saved locally; will appear offline.")
         }
@@ -496,14 +559,19 @@ class CrmRepository(
         val session = credentialStore.getAuthSession()
         if (!session.isAuthenticated) return@withContext RepoResult.Success(Unit)
 
-        val service = FrappeClientFactory.createService(session)
+        val (_, service) = ensureCsrfService(session)
         runCatching {
             val crmResp = service.updateResource("CRM Task", task.name, mapOf("status" to nextStatus))
-            if (!crmResp.isSuccessful) {
+            if (crmResp.isSuccessful) {
+                RepoResult.Success(Unit)
+            } else if (crmResp.code() == 404) {
                 val todoStatus = if (nextCompleted) "Closed" else "Open"
-                service.updateResource("ToDo", task.name, mapOf("status" to todoStatus))
+                val todoResp = service.updateResource("ToDo", task.name, mapOf("status" to todoStatus))
+                if (todoResp.isSuccessful) RepoResult.Success(Unit)
+                else RepoResult.Error("Task update failed (${extractFrappeError(todoResp.code(), todoResp.errorBody()?.string())})")
+            } else {
+                RepoResult.Error("Task update failed (${extractFrappeError(crmResp.code(), crmResp.errorBody()?.string())})")
             }
-            RepoResult.Success(Unit)
         }.getOrElse {
             RepoResult.Error("Updated locally; sync retry queued.")
         }
@@ -531,10 +599,29 @@ class CrmRepository(
         enqueueSyncWorker()
     }
 
+    private suspend fun ensureCsrfService(initialSession: AuthSession): Pair<AuthSession, FrappeApiService> {
+        var session = initialSession
+        var service = FrappeClientFactory.createService(session)
+        if (session.authMode == AuthMode.SESSION_COOKIE && session.csrfToken.isBlank()) {
+            val refreshedToken = fetchCsrfToken(service)
+            if (refreshedToken.isNotBlank()) {
+                credentialStore.saveSessionCredentials(
+                    baseUrl = session.baseUrl,
+                    sessionCookie = session.sessionCookie,
+                    csrfToken = refreshedToken,
+                    loggedInUser = session.loggedInUser
+                )
+                session = session.copy(csrfToken = refreshedToken)
+                service = FrappeClientFactory.createService(session)
+            }
+        }
+        return session to service
+    }
+
     suspend fun syncPendingQueueOnce(): Boolean = withContext(Dispatchers.IO) {
-        val session = credentialStore.getAuthSession()
-        if (!session.isAuthenticated) return@withContext false
-        val service = FrappeClientFactory.createService(session)
+        val initialSession = credentialStore.getAuthSession()
+        if (!initialSession.isAuthenticated) return@withContext false
+        val (session, service) = ensureCsrfService(initialSession)
         val queue = callLogDao.getUploadQueue()
         if (queue.isEmpty()) return@withContext true
 
@@ -553,11 +640,12 @@ class CrmRepository(
                 )
             }
         }
+        _syncStage.value = null
         allSucceeded
     }
 
     private suspend fun uploadSingleCallLog(
-        service: com.example.data.remote.FrappeApiService,
+        service: FrappeApiService,
         session: AuthSession,
         item: CallLogEntity
     ): Result<Unit> = runCatching {
@@ -565,56 +653,44 @@ class CrmRepository(
         val localFile = item.localAudioPath?.let { File(it) }
 
         // Step 1: Upload .m4a recording as Private File (is_private = 1)
+        // Uses Home root (never a nonexistent subfolder) and falls back to unattached upload if parent doc rejects attach.
         if (uploadedFileUrl.isNullOrBlank() && localFile != null && localFile.exists() && localFile.length() > 0L) {
+            _syncStage.value = "Uploading call recording…"
             val reqFile = localFile.asRequestBody("audio/mp4".toMediaTypeOrNull())
-            val part = MultipartBody.Part.createFormData("file", localFile.name, reqFile)
-            val isPrivateBody = "1".toRequestBody("text/plain".toMediaTypeOrNull())
-            val doctypeBody = item.referenceDoctype?.toRequestBody("text/plain".toMediaTypeOrNull())
-            val docnameBody = item.referenceDocname?.toRequestBody("text/plain".toMediaTypeOrNull())
-            val folderBody = "Home/Call Recordings".toRequestBody("text/plain".toMediaTypeOrNull())
+            val filePart = MultipartBody.Part.createFormData("file", localFile.name, reqFile)
+            val isPrivatePart = MultipartBody.Part.createFormData("is_private", "1")
 
-            val uploadResp = service.uploadPrivateFile(
-                file = part,
-                isPrivate = isPrivateBody,
-                doctype = doctypeBody,
-                docname = docnameBody,
-                folder = folderBody
-            )
+            val hasRef = !item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()
+            val primaryParts = buildList {
+                add(filePart)
+                add(isPrivatePart)
+                if (hasRef) {
+                    add(MultipartBody.Part.createFormData("doctype", item.referenceDoctype!!))
+                    add(MultipartBody.Part.createFormData("docname", item.referenceDocname!!))
+                }
+            }
+
+            var uploadResp = service.uploadPrivateFile(primaryParts)
+            if (!uploadResp.isSuccessful && hasRef) {
+                // Retry standalone private upload if parent doctype/docname denied attachment
+                val retryFilePart = MultipartBody.Part.createFormData("file", localFile.name, reqFile)
+                val retryPrivatePart = MultipartBody.Part.createFormData("is_private", "1")
+                uploadResp = service.uploadPrivateFile(listOf(retryFilePart, retryPrivatePart))
+            }
             if (!uploadResp.isSuccessful) {
-                error("File upload failed (HTTP ${uploadResp.code()})")
+                val errDetail = extractFrappeError(uploadResp.code(), uploadResp.errorBody()?.string())
+                error("Recording upload failed ($errDetail)")
             }
             uploadedFileUrl = uploadResp.body()?.message?.fileUrl
                 ?: error("Upload succeeded but file_url missing")
         }
 
-        // Step 2: Create CRM Call Log record
-        val direction = runCatching { CallDirection.valueOf(item.direction) }
-            .getOrDefault(CallDirection.OUTGOING)
-        val user = session.loggedInUser.ifBlank { "Rep" }
-        val payload = buildMap<String, Any?> {
-            put("type", direction.frappeType)
-            put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
-            put("duration", item.durationSeconds)
-            put("from", if (direction == CallDirection.OUTGOING) user else item.phoneNumber)
-            put("to", if (direction == CallDirection.OUTGOING) item.phoneNumber else user)
-            if (!uploadedFileUrl.isNullOrBlank()) put("recording_url", uploadedFileUrl)
-            if (!item.referenceDoctype.isNullOrBlank()) put("reference_doctype", item.referenceDoctype)
-            if (!item.referenceDocname.isNullOrBlank()) put("reference_docname", item.referenceDocname)
-            if (!item.note.isNullOrBlank()) put("note", item.note)
-        }
-
-        val logResp = service.createResource("CRM Call Log", payload)
-        if (!logResp.isSuccessful) {
-            error("CRM Call Log failed (HTTP ${logResp.code()})")
-        }
-        val docName = logResp.body()?.data?.str("name").orEmpty()
-
-        // Step 3: Optionally post CRM Note & Follow-Up Task
-        if (!item.note.isNullOrBlank() &&
-            !item.referenceDoctype.isNullOrBlank() &&
-            !item.referenceDocname.isNullOrBlank()
-        ) {
-            service.createResource(
+        // Step 2: Create CRM Note FIRST so CRM Call Log's `note` Link field receives a valid CRM Note docname
+        var createdNoteDocName: String? = null
+        val supportsCrmNoteRef = item.referenceDoctype in setOf("CRM Lead", "CRM Deal", "Lead", "Opportunity")
+        if (!item.note.isNullOrBlank() && supportsCrmNoteRef && !item.referenceDocname.isNullOrBlank()) {
+            _syncStage.value = "Creating CRM Note…"
+            val noteResp = service.createResource(
                 "CRM Note",
                 mapOf(
                     "title" to (item.disposition ?: "Call Note"),
@@ -623,33 +699,109 @@ class CrmRepository(
                     "reference_docname" to item.referenceDocname
                 )
             )
+            if (noteResp.isSuccessful) {
+                createdNoteDocName = noteResp.body()?.data?.str("name")?.ifBlank { null }
+            }
         }
 
+        // Step 3: Create CRM Call Log (with safe retry & classic ERPNext Call Log fallback)
+        val direction = runCatching { CallDirection.valueOf(item.direction) }
+            .getOrDefault(CallDirection.OUTGOING)
+        val user = session.loggedInUser.trim()
+        val hasValidUser = user.isNotBlank() && !user.equals("Rep", ignoreCase = true)
+        val displaySender = if (hasValidUser) user else "SIM Rep"
+
+        val dtFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        val startTimeStr = dtFormatter.format(Date(item.timestampMs))
+        val endTimeStr = dtFormatter.format(Date(item.timestampMs + (item.durationSeconds * 1000L)))
+        val callUniqueId = "onebook-${item.id}-${item.timestampMs}"
+
+        val baseCallPayload = buildMap<String, Any?> {
+            put("id", callUniqueId)
+            put("type", direction.frappeType)
+            put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
+            put("duration", item.durationSeconds)
+            put("start_time", startTimeStr)
+            put("end_time", endTimeStr)
+            put("from", if (direction == CallDirection.OUTGOING) displaySender else item.phoneNumber)
+            put("to", if (direction == CallDirection.OUTGOING) item.phoneNumber else displaySender)
+            if (!uploadedFileUrl.isNullOrBlank()) put("recording_url", uploadedFileUrl)
+        }
+
+        val fullCrmPayload = buildMap<String, Any?> {
+            putAll(baseCallPayload)
+            if (hasValidUser) {
+                if (direction == CallDirection.OUTGOING) put("caller", user)
+                else put("receiver", user)
+            }
+            if (!item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()) {
+                put("reference_doctype", item.referenceDoctype)
+                put("reference_docname", item.referenceDocname)
+            }
+            if (!createdNoteDocName.isNullOrBlank()) {
+                put("note", createdNoteDocName)
+            }
+        }
+
+        _syncStage.value = "Logging call in Frappe CRM…"
+        var logResp = service.createResource("CRM Call Log", fullCrmPayload)
+        if (!logResp.isSuccessful && logResp.code() in setOf(400, 417)) {
+            // Retry with minimal core fields in case site customized/removed optional link fields
+            logResp = service.createResource("CRM Call Log", baseCallPayload)
+        }
+        if (!logResp.isSuccessful && logResp.code() == 404) {
+            // Fallback to classic ERPNext `Call Log` DocType
+            val classicPayload = buildMap<String, Any?> {
+                put("id", callUniqueId)
+                put("type", direction.frappeType)
+                put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
+                put("duration", item.durationSeconds)
+                put("start_time", startTimeStr)
+                put("end_time", endTimeStr)
+                put("from", if (direction == CallDirection.OUTGOING) displaySender else item.phoneNumber)
+                put("to", if (direction == CallDirection.OUTGOING) item.phoneNumber else displaySender)
+                if (!uploadedFileUrl.isNullOrBlank()) put("recording_url", uploadedFileUrl)
+                if (!item.note.isNullOrBlank()) put("summary", item.note)
+            }
+            logResp = service.createResource("Call Log", classicPayload)
+        }
+
+        if (!logResp.isSuccessful) {
+            val errDetail = extractFrappeError(logResp.code(), logResp.errorBody()?.string())
+            error("CRM Call Log failed ($errDetail)")
+        }
+        val docName = logResp.body()?.data?.str("name").orEmpty()
+
+        // Step 4: Optionally schedule Follow-Up Task
         if (!item.nextFollowUpDate.isNullOrBlank()) {
             val taskPayload = buildMap<String, Any?> {
                 put("title", "Follow-up Call: ${item.matchedName ?: item.phoneNumber}")
                 put("due_date", item.nextFollowUpDate)
                 put("status", "Todo")
                 put("priority", "High")
-                if (!item.referenceDoctype.isNullOrBlank()) put("reference_doctype", item.referenceDoctype)
-                if (!item.referenceDocname.isNullOrBlank()) put("reference_docname", item.referenceDocname)
+                if (hasValidUser) put("assigned_to", user)
+                if (!item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()) {
+                    put("reference_doctype", item.referenceDoctype)
+                    put("reference_docname", item.referenceDocname)
+                }
             }
             val taskResp = service.createResource("CRM Task", taskPayload)
             if (!taskResp.isSuccessful) {
-                service.createResource(
-                    "ToDo",
-                    mapOf(
-                        "description" to "Follow-up Call: ${item.matchedName ?: item.phoneNumber}",
-                        "date" to item.nextFollowUpDate,
-                        "status" to "Open",
-                        "reference_type" to item.referenceDoctype,
-                        "reference_name" to item.referenceDocname
-                    )
-                )
+                val todoPayload = buildMap<String, Any?> {
+                    put("description", "Follow-up Call: ${item.matchedName ?: item.phoneNumber}")
+                    put("date", item.nextFollowUpDate)
+                    put("status", "Open")
+                    if (hasValidUser) put("allocated_to", user)
+                    if (!item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()) {
+                        put("reference_type", item.referenceDoctype)
+                        put("reference_name", item.referenceDocname)
+                    }
+                }
+                service.createResource("ToDo", todoPayload)
             }
         }
 
-        // Step 4: Mark synced and delete temporary local .m4a file ONLY after 200 OK
+        // Step 5: Mark synced and delete temporary local .m4a file ONLY after 200 OK
         callLogDao.update(
             item.copy(
                 frappeDocName = docName,

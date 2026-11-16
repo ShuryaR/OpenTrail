@@ -23,6 +23,7 @@ sealed interface AppRoute {
 }
 
 enum class HomeTab(val label: String) {
+    RECENTS("Recents"),
     TASKS("Tasks"),
     LEADS("Leads"),
     DEALS("Deals"),
