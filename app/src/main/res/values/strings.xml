@@ -1,0 +1,50 @@
+<resources>
+    <string name="app_name">OneBook Dialer</string>
+    <string name="accessibility_service_label">OneBook Call Recorder</string>
+    <string name="accessibility_service_description">Enables automatic background call audio capture during active SIM calls and pairs recordings with your Frappe CRM Call Logs.</string>
+
+    <!-- Notification Channels -->
+    <string name="channel_recorder_name">Call Recording Status</string>
+    <string name="channel_recorder_desc">Shows when OneBook Dialer is actively recording a CRM call</string>
+    <string name="channel_post_call_name">Post-Call Wrap-Up &amp; Caller ID</string>
+    <string name="channel_post_call_desc">Quick disposition prompts after calls and incoming CRM caller ID alerts</string>
+    <string name="channel_sync_name">CRM Background Sync</string>
+    <string name="channel_sync_desc">Uploads call logs and audio recordings to Frappe CRM</string>
+
+    <!-- Auth & Onboarding -->
+    <string name="login_title">Connect to Frappe CRM</string>
+    <string name="login_subtitle">Direct SIM dialing &amp; zero-middleman call sync</string>
+    <string name="login_url_label">Frappe CRM URL</string>
+    <string name="login_url_hint">https://crm.yourcompany.com</string>
+    <string name="login_mode_api_key">API Token</string>
+    <string name="login_mode_password">Email &amp; Password</string>
+    <string name="login_api_key_label">API Key</string>
+    <string name="login_api_secret_label">API Secret</string>
+    <string name="login_email_label">Email or Username</string>
+    <string name="login_password_label">Password</string>
+    <string name="login_submit">Connect &amp; Sync CRM</string>
+
+    <!-- Permission Wizard -->
+    <string name="wizard_title">Device Setup Checklist</string>
+    <string name="wizard_subtitle">Grant system access once so every SIM call records and syncs to Frappe automatically.</string>
+    <string name="wizard_continue">Open Sales Pipeline</string>
+    <string name="wizard_vowifi_title">VoWiFi Audio Tip</string>
+    <string name="wizard_vowifi_body">Some chipsets mute downlink call audio over Wi-Fi Calling (VoWiFi). If recordings only capture your voice, disable Wi-Fi Calling in SIM settings.</string>
+
+    <!-- Health Banner -->
+    <string name="health_active">Auto-Sync &amp; Recorder Active</string>
+    <string name="health_action_needed">Action Needed: Re-enable Accessibility</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_tasks">Tasks</string>
+    <string name="tab_leads">Leads</string>
+    <string name="tab_deals">Deals</string>
+    <string name="tab_contacts">Contacts</string>
+
+    <!-- Post-Call Sheet -->
+    <string name="post_call_title">Quick Call Wrap-Up</string>
+    <string name="post_call_note_hint">Add call summary, next steps, or customer feedback...</string>
+    <string name="post_call_schedule_label">Schedule Next Call</string>
+    <string name="post_call_save">Save &amp; Sync to Frappe</string>
+    <string name="post_call_skip">Dismiss</string>
+</resources>

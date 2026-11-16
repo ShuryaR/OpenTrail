@@ -1,0 +1,6 @@
+{
+  "name": "OneBook Dialer",
+  "description": "OneBook CRM SIM Dialer connecting directly to Frappe CRM with native cellular calling, call recording, and offline-first sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
