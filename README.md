@@ -59,6 +59,7 @@ Teams searching for an **open-source alternative to Salestrail** usually hit the
 - **[Salestrail Alternative & Migration Guide](docs/salestrail-alternative.md)** — Feature comparison, cost breakdown, and team rollout checklist.
 - **[Android Client Architecture](docs/architecture.md)** — Kotlin/Compose modules, Room schema, `CallStateReceiver`, `AccessibilityService`, and `WorkManager` sync pipeline.
 - **[Frappe CRM Setup & API Mapping](docs/frappe-crm-setup.md)** — API Key/Secret generation, DocType field mappings (`CRM Lead`, `CRM Deal`, `Contact`, `CRM Task`, `CRM Call Log`, `CRM Note`), and private file uploads.
+- **[Releasing a New Version](docs/releasing.md)** — One-time signing setup and how to publish a signed APK on GitHub Releases (the only distribution channel).
 - **[Device Setup & OEM Tuning Guide](docs/device-setup-oem-guide.md)** — Android 13–16+ Restricted Settings unlock, Battery Optimization exemption, VoWiFi audio warning, and Samsung/Xiaomi/OnePlus tuning.
 
 ---
@@ -86,10 +87,10 @@ gradle :app:assembleDebug
 The APK will be generated at:
 `app/build/outputs/apk/debug/app-debug.apk`
 
-### 2. Download from GitHub Actions CI
+### 2. Download a Release
 Every push and pull request runs:
 - **Code Review Workflow** (`.github/workflows/code-review.yml`): Security/privacy static checks, Android Lint (`:app:lintDebug`), unit/Robolectric tests, and automated PR review summary comments.
-- **Android Build Workflow** (`.github/workflows/android-build.yml`): Builds `onebook-dialer-debug-apk` artifacts on every commit and signed Release `.apk` / `.aab` bundles on `v*` version tags.
+- **Android Build Workflow** (`.github/workflows/android-build.yml`): Runs the tests and a debug build on every push and pull request. Pushing a `vX.Y.Z` tag builds the signed release APK and publishes it on the repository's **Releases** page. See **[Releasing](docs/releasing.md)**.
 
 ### 3. Sideload & Onboard Device
 1. Install the APK on your sales rep's Android device (Android 10 through Android 16+).

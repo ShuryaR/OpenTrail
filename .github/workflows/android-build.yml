@@ -1,5 +1,10 @@
 name: Android App Build & Release
 
+# OneBook Dialer ships only as a signed APK on GitHub Releases (no Play Store, no AAB).
+# - Every push / PR: run unit tests and make sure the app still builds.
+# - Tag `vX.Y.Z`:   build the signed release APK and publish it as a GitHub Release.
+# See docs/releasing.md for the one-time signing setup.
+
 on:
   push:
     branches: [main, master]
@@ -10,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-build-${{ github.ref }}
@@ -60,18 +65,23 @@ jobs:
       - name: Assemble Debug APK
         run: gradle :app:assembleDebug --no-daemon
 
-      - name: Upload Sideload Debug APK Artifact
+      # Debug APKs are for testing a pull request only. Their signing key is new on every run, so a
+      # phone cannot update one over another. Hand out the release APK, never this one.
+      - name: Upload Debug APK (pull requests only, for testing)
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: onebook-dialer-debug-apk
+          name: debug-apk-for-testing-only
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 30
+          retention-days: 7
 
   build-release:
-    name: Build Signed Release APK & AAB
+    name: Build Signed Release APK
     needs: build-debug
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release
 
     steps:
       - name: Checkout repository
@@ -88,40 +98,96 @@ jobs:
         with:
           gradle-version: "9.3.1"
 
-      - name: Configure Release Signing Keystore
-        id: signing
+      # v1.2.3 -> versionName 1.2.3, versionCode 1002003. Android installs an update only when
+      # versionCode goes up, so it is derived from the tag and never set by hand.
+      - name: Work out app version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "::error::Release tag '$TAG' must look like v1.2.3"
+              exit 1
+            fi
+            MAJOR="${BASH_REMATCH[1]}"; MINOR="${BASH_REMATCH[2]}"; PATCH="${BASH_REMATCH[3]}"
+            if [ "$MINOR" -gt 999 ] || [ "$PATCH" -gt 999 ]; then
+              echo "::error::Minor and patch numbers must be 999 or lower"
+              exit 1
+            fi
+            NAME="$MAJOR.$MINOR.$PATCH"
+            CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+            PUBLISH=true
+          else
+            # Manual run: a test of the signing setup, never published.
+            NAME="0.0.0-dev.${GITHUB_RUN_NUMBER}"
+            CODE="$GITHUB_RUN_NUMBER"
+            PUBLISH=false
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "Building version $NAME (code $CODE), publish=$PUBLISH"
+
+      # A release with no signing key would be useless and silently green, so stop with a clear error.
+      - name: Configure release signing key
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "No RELEASE_KEYSTORE_BASE64 secret found; skipping signed release build."
+          missing=""
+          for v in RELEASE_KEYSTORE_BASE64 STORE_PASSWORD KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Add them as described in docs/releasing.md."
+            exit 1
           fi
+          # Written outside the checkout so it can never end up in an artifact.
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - name: Assemble Signed Release APK & AAB
-        if: steps.signing.outputs.signed == 'true'
+      - name: Assemble signed release APK
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle :app:assembleRelease :app:bundleRelease --no-daemon
+          APP_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: gradle :app:assembleRelease --no-daemon
 
-      - name: Upload Signed Release Artifacts
-        if: steps.signing.outputs.signed == 'true'
+      - name: Verify signature and version, then name the files
+        env:
+          APP_VERSION_NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          # Exits non-zero (failing the job) if the signature is invalid; prints the key fingerprint.
+          "$BT/apksigner" verify --print-certs "$APK"
+          GOT="$("$BT/aapt2" dump badging "$APK" | grep -o "versionName='[^']*'" | head -1)"
+          if [ "$GOT" != "versionName='$APP_VERSION_NAME'" ]; then
+            echo "::error::APK reports $GOT but expected versionName='$APP_VERSION_NAME'"
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" "dist/OneBook-Dialer-v${APP_VERSION_NAME}.apk"
+          (cd dist && shasum -a 256 "OneBook-Dialer-v${APP_VERSION_NAME}.apk" > "OneBook-Dialer-v${APP_VERSION_NAME}.apk.sha256")
+          cat dist/*.sha256
+
+      - name: Upload release files
         uses: actions/upload-artifact@v4
         with:
           name: onebook-dialer-release
-          path: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/bundle/release/*.aab
+          path: dist/*
+          retention-days: 30
 
-      - name: Publish GitHub Release on Version Tag
-        if: startsWith(github.ref, 'refs/tags/v') && steps.signing.outputs.signed == 'true'
+      - name: Publish GitHub Release
+        if: steps.ver.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          name: OneBook Dialer ${{ steps.ver.outputs.name }}
           generate_release_notes: true
+          body: |
+            Download `OneBook-Dialer-v${{ steps.ver.outputs.name }}.apk` below and open it on the Android phone.
+            It installs over any earlier release without losing data. Check the download against the `.sha256` file if you like.
           files: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/bundle/release/*.aab
+            dist/*

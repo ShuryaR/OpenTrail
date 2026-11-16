@@ -41,8 +41,8 @@ Proprietary SIM call-tracking SaaS tools solve an important sales problem—capt
 1. **Prepare Frappe CRM:**
    - Generate an **API Key & API Secret** for each sales rep (or allow Email & Password login) in Frappe. See [Frappe CRM Setup](frappe-crm-setup.md).
 2. **Distribute the Internal APK:**
-   - Download the signed APK from your GitHub Release (built automatically by `.github/workflows/android-build.yml`) or deploy via internal MDM.
-   - *Note:* Because Google Play restricts Accessibility-based call recording for third-party Play Store apps, internal sideloading/MDM distribution ensures uninterrupted two-way call capture on Android 10–16+.
+   - Download the signed APK from the repository's **Releases** page (built automatically by `.github/workflows/android-build.yml`) and install it on each rep's phone. Later releases install over the earlier one and keep the rep's data.
+   - *Note:* OneBook Dialer is distributed only through GitHub Releases. Google Play does not allow Accessibility-based call recording, so the app is not published there.
 3. **Run the 4-Step Device Wizard:**
    - Have each rep complete the onboarding checklist (Phone/Call Log, Mic/Notifications, Restricted Settings + Accessibility Service, Battery Unrestricted). See [Device Setup & OEM Guide](device-setup-oem-guide.md).
 4. **Configure Privacy & Dual-SIM Preferences:**

@@ -1,6 +1,6 @@
 # Device Setup & OEM Call Recording Guide
 
-Because OneBook Dialer is distributed directly to company Android devices (Android 10 through Android 16+) via sideloaded APK or internal MDM, Android applies extra security protections around Accessibility Services and background battery usage.
+Because OneBook Dialer is distributed directly to company Android devices (Android 10 through Android 16+) as a signed APK from GitHub Releases, Android applies extra security protections around Accessibility Services and background battery usage.
 
 Follow this guide when onboarding devices in the field.
 

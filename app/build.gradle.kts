@@ -17,8 +17,10 @@ android {
     applicationId = "com.aistudio.onebookdialer.k9m4px"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // CI passes these from the release tag (v1.2.3 -> "1.2.3", code 1_002_003). Android only installs
+    // an update when versionCode goes up, so local builds keep the defaults.
+    versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 1
+    versionName = System.getenv("APP_VERSION_NAME") ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
