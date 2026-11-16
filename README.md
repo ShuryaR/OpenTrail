@@ -69,8 +69,12 @@ Teams searching for an **open-source alternative to Salestrail** usually hit the
 Requires **JDK 21**, **Android SDK (API 36)**, and **Gradle 9.3.1**.
 
 ```bash
-# Restore debug keystore (if not present)
-base64 -d debug.keystore.base64 > debug.keystore
+# Restore or generate debug keystore (if not present)
+if [ -f debug.keystore.base64 ]; then
+  base64 -d debug.keystore.base64 > debug.keystore
+elif [ ! -f debug.keystore ]; then
+  keytool -genkeypair -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+fi
 
 # Run unit & Robolectric tests
 gradle :app:testDebugUnitTest
