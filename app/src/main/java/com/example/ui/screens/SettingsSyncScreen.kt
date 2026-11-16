@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -90,6 +92,7 @@ fun SettingsSyncScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showAddExclusionDialog by remember { mutableStateOf(false) }
+    var showSignOutDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.message) {
         state.message?.let { msg ->
@@ -133,6 +136,8 @@ fun SettingsSyncScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                item { SettingsSectionHeader("Sync", "Calls waiting to upload and your daily target.") }
+
                 // Sync Queue Card
                 item {
                     val pendingList = state.callQueue.filter { it.syncStatus != SyncStatus.SYNCED.name }
@@ -152,7 +157,7 @@ fun SettingsSyncScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                     Text(
                                         text = "Offline-First Upload Queue",
                                         style = MaterialTheme.typography.titleMedium,
@@ -178,7 +183,7 @@ fun SettingsSyncScreen(
                                     } else {
                                         Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Sync Now")
+                                        Text("Sync Now", maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -225,6 +230,8 @@ fun SettingsSyncScreen(
                         }
                     }
                 }
+
+                item { SettingsSectionHeader("Call capture", "How calls are recorded and which SIM counts as work.") }
 
                 // Audio Source Selector
                 item {
@@ -321,6 +328,8 @@ fun SettingsSyncScreen(
                     }
                 }
 
+                item { SettingsSectionHeader("Privacy", "Decide which calls are recorded and synced.") }
+
                 // Personal Call Privacy Filter
                 item {
                     SectionCard(title = "Personal Call Privacy Filter") {
@@ -354,7 +363,8 @@ fun SettingsSyncScreen(
                         ) {
                             Text(
                                 text = "Excluded Personal Numbers (${state.excludedNumbers.size})",
-                                style = MaterialTheme.typography.titleSmall
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp)
                             )
                             OutlinedButton(
                                 onClick = { showAddExclusionDialog = true },
@@ -362,7 +372,7 @@ fun SettingsSyncScreen(
                             ) {
                                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Exclude")
+                                Text("Exclude", maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -398,6 +408,8 @@ fun SettingsSyncScreen(
                     }
                 }
 
+                item { SettingsSectionHeader("Account & device", "Your CRM connection and phone permissions.") }
+
                 // Device Setup & Account Actions
                 item {
                     SectionCard(title = "Frappe Connection & Device Access") {
@@ -425,27 +437,62 @@ fun SettingsSyncScreen(
                             Text("Review Permissions & Accessibility")
                         }
 
-                        Button(
-                            onClick = {
-                                viewModel.signOut()
-                                onSignedOut()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("settings_sign_out_button")
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Sign Out & Clear Keystore")
-                        }
+                    }
+                }
+
+                // Destructive action lives apart from the settings above, behind a confirmation.
+                item {
+                    androidx.compose.material3.HorizontalDivider(
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    OutlinedButton(
+                        onClick = { showSignOutDialog = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_sign_out_button")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sign out of this phone")
                     }
                 }
             }
         }
+    }
+
+    if (showSignOutDialog) {
+        val waiting = state.callQueue.count { it.syncStatus != SyncStatus.SYNCED.name }
+        AlertDialog(
+            onDismissRequest = { showSignOutDialog = false },
+            title = { Text("Sign out?") },
+            text = {
+                Text(
+                    if (waiting > 0) {
+                        "$waiting call${if (waiting == 1) "" else "s"} have not uploaded yet. They stay on this phone, but nothing syncs until you sign in again. Your saved login is erased from this phone."
+                    } else {
+                        "Your saved login is erased from this phone. You will need your CRM address and credentials to sign back in."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSignOutDialog = false
+                        viewModel.signOut()
+                        onSignedOut()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier.testTag("settings_sign_out_confirm")
+                ) { Text("Sign out") }
+            },
+            dismissButton = { TextButton(onClick = { showSignOutDialog = false }) { Text("Cancel") } }
+        )
     }
 
     if (showAddExclusionDialog) {
@@ -455,6 +502,27 @@ fun SettingsSyncScreen(
                 viewModel.addExcludedNumber(phone, label)
                 showAddExclusionDialog = false
             }
+        )
+    }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String, subtitle: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.semantics { heading() }
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

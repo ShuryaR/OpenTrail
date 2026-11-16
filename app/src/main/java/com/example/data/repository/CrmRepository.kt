@@ -197,11 +197,9 @@ class CrmRepository(
         runCatching {
             _syncStage.value = "Syncing CRM Leads…"
             // 1. Leads (CRM Lead with Lead fallback)
-            val leadResp = service.listResources("CRM Lead").let {
-                if (it.isSuccessful) it else service.listResources("Lead")
-            }
-            if (leadResp.isSuccessful) {
-                val leads = leadResp.body()?.data.orEmpty().map { row ->
+            val leadRows = listAllPaged(service, "CRM Lead", fallbackDoctype = "Lead")
+            if (leadRows != null) {
+                val leads = leadRows.map { row ->
                     val rawPhone = row.str("mobile_no", "phone", "whatsapp_no")
                     val fullName = row.str("lead_name", "first_name").ifBlank {
                         listOf(row.str("first_name"), row.str("last_name"))
@@ -228,11 +226,9 @@ class CrmRepository(
 
             _syncStage.value = "Syncing Deals & Contacts…"
             // 2. Deals (CRM Deal with Opportunity fallback)
-            val dealResp = service.listResources("CRM Deal").let {
-                if (it.isSuccessful) it else service.listResources("Opportunity")
-            }
-            if (dealResp.isSuccessful) {
-                val deals = dealResp.body()?.data.orEmpty().map { row ->
+            val dealRows = listAllPaged(service, "CRM Deal", fallbackDoctype = "Opportunity")
+            if (dealRows != null) {
+                val deals = dealRows.map { row ->
                     val rawPhone = row.str("mobile_no", "phone", "contact_mobile")
                     DealEntity(
                         name = row.str("name"),
@@ -254,9 +250,9 @@ class CrmRepository(
             }
 
             // 3. Contacts
-            val contactResp = service.listResources("Contact")
-            if (contactResp.isSuccessful) {
-                val contacts = contactResp.body()?.data.orEmpty().map { row ->
+            val contactRows = listAllPaged(service, "Contact")
+            if (contactRows != null) {
+                val contacts = contactRows.map { row ->
                     val rawPhone = row.str("mobile_no", "phone")
                     val fullName = row.str("full_name").ifBlank {
                         listOf(row.str("first_name"), row.str("last_name"))
@@ -280,11 +276,12 @@ class CrmRepository(
             }
 
             // 4. Tasks (CRM Task with ToDo fallback)
-            val taskResp = service.listResources("CRM Task", orderBy = "due_date asc").let {
-                if (it.isSuccessful) it else service.listResources("ToDo", orderBy = "date asc")
-            }
-            if (taskResp.isSuccessful) {
-                val tasks = taskResp.body()?.data.orEmpty().map { row ->
+            val taskRows = listAllPaged(
+                service, "CRM Task", orderBy = "due_date asc",
+                fallbackDoctype = "ToDo", fallbackOrderBy = "date asc"
+            )
+            if (taskRows != null) {
+                val tasks = taskRows.map { row ->
                     val status = row.str("status").ifBlank { "Todo" }
                     val completed = status.equals("Done", true) || status.equals("Closed", true)
                     val refType = row.str("reference_doctype", "reference_type")
@@ -320,6 +317,8 @@ class CrmRepository(
                     val caller = row.str("from", "caller")
                     val receiver = row.str("to", "receiver")
                     val num = if (type.equals("Incoming", true)) caller else receiver.ifBlank { caller }
+                    // Server rows carry no display name: resolve it from the CRM cache refreshed above.
+                    val match = matchPhoneToCrm(num)
                     CallLogEntity(
                         frappeDocName = docName,
                         phoneNumber = num,
@@ -332,8 +331,10 @@ class CrmRepository(
                         durationSeconds = row.integer("duration"),
                         timestampMs = parseFrappeDate(row.str("creation", "start_time")),
                         remoteAudioUrl = row.str("recording_url"),
-                        referenceDoctype = row.str("reference_doctype").ifBlank { null },
-                        referenceDocname = row.str("reference_docname").ifBlank { null },
+                        referenceDoctype = row.str("reference_doctype").ifBlank { null } ?: match?.doctype,
+                        referenceDocname = row.str("reference_docname").ifBlank { null } ?: match?.docname,
+                        matchedName = match?.displayName,
+                        matchedCompany = match?.company,
                         note = row.str("note").ifBlank { null },
                         syncStatus = SyncStatus.SYNCED.name
                     )
@@ -351,6 +352,34 @@ class CrmRepository(
             _syncStage.value = null
             RepoResult.Error(e.localizedMessage ?: "Failed to sync Frappe CRM records.")
         }
+    }
+
+    /**
+     * Frappe caps list responses (default 20), so fetch every page. Returns null when neither the
+     * CRM doctype nor its classic ERPNext fallback is readable. Capped to keep sync bounded.
+     */
+    private suspend fun listAllPaged(
+        service: FrappeApiService,
+        doctype: String,
+        orderBy: String = "modified desc",
+        fallbackDoctype: String? = null,
+        fallbackOrderBy: String = "modified desc"
+    ): List<Map<String, Any?>>? {
+        suspend fun fetch(dt: String, order: String): List<Map<String, Any?>>? {
+            val all = mutableListOf<Map<String, Any?>>()
+            var start = 0
+            while (all.size < MAX_SYNC_ROWS) {
+                val resp = service.listResources(dt, limit = PAGE_SIZE, start = start, orderBy = order)
+                if (!resp.isSuccessful) return if (start == 0) null else all
+                val page = resp.body()?.data.orEmpty()
+                all += page
+                if (page.size < PAGE_SIZE) break
+                start += PAGE_SIZE
+            }
+            return all
+        }
+        return fetch(doctype, orderBy)
+            ?: fallbackDoctype?.let { fetch(it, fallbackOrderBy) }
     }
 
     suspend fun fetchNotesForRecord(doctype: String, docname: String) = withContext(Dispatchers.IO) {
@@ -709,24 +738,24 @@ class CrmRepository(
             .getOrDefault(CallDirection.OUTGOING)
         val user = session.loggedInUser.trim()
         val hasValidUser = user.isNotBlank() && !user.equals("Rep", ignoreCase = true)
-        val displaySender = if (hasValidUser) user else "SIM Rep"
 
         val dtFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         val startTimeStr = dtFormatter.format(Date(item.timestampMs))
         val endTimeStr = dtFormatter.format(Date(item.timestampMs + (item.durationSeconds * 1000L)))
         val callUniqueId = "onebook-${item.id}-${item.timestampMs}"
 
-        val baseCallPayload = buildMap<String, Any?> {
-            put("id", callUniqueId)
-            put("type", direction.frappeType)
-            put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
-            put("duration", item.durationSeconds)
-            put("start_time", startTimeStr)
-            put("end_time", endTimeStr)
-            put("from", if (direction == CallDirection.OUTGOING) displaySender else item.phoneNumber)
-            put("to", if (direction == CallDirection.OUTGOING) item.phoneNumber else displaySender)
-            if (!uploadedFileUrl.isNullOrBlank()) put("recording_url", uploadedFileUrl)
-        }
+        // NOTE: Frappe requires `from`/`to` and validates them as Phone Numbers, so never put the
+        // rep's email/name in them (HTTP 417). The rep is identified via `caller`/`receiver`.
+        val baseCallPayload = buildCallLogBasePayload(
+            callUniqueId = callUniqueId,
+            direction = direction,
+            customerNumber = item.phoneNumber,
+            repNumber = com.example.util.SimManager.ownNumberFor(context, item.simSlotIndex),
+            durationSeconds = item.durationSeconds,
+            startTime = startTimeStr,
+            endTime = endTimeStr,
+            recordingUrl = uploadedFileUrl
+        )
 
         val fullCrmPayload = buildMap<String, Any?> {
             putAll(baseCallPayload)
@@ -743,34 +772,43 @@ class CrmRepository(
             }
         }
 
-        _syncStage.value = "Logging call in Frappe CRM…"
-        var logResp = service.createResource("CRM Call Log", fullCrmPayload)
-        if (!logResp.isSuccessful && logResp.code() in setOf(400, 417)) {
-            // Retry with minimal core fields in case site customized/removed optional link fields
-            logResp = service.createResource("CRM Call Log", baseCallPayload)
-        }
-        if (!logResp.isSuccessful && logResp.code() == 404) {
-            // Fallback to classic ERPNext `Call Log` DocType
-            val classicPayload = buildMap<String, Any?> {
-                put("id", callUniqueId)
-                put("type", direction.frappeType)
-                put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
-                put("duration", item.durationSeconds)
-                put("start_time", startTimeStr)
-                put("end_time", endTimeStr)
-                put("from", if (direction == CallDirection.OUTGOING) displaySender else item.phoneNumber)
-                put("to", if (direction == CallDirection.OUTGOING) item.phoneNumber else displaySender)
-                if (!uploadedFileUrl.isNullOrBlank()) put("recording_url", uploadedFileUrl)
-                if (!item.note.isNullOrBlank()) put("summary", item.note)
+        // A wrap-up edit of a call already in Frappe must patch it: re-creating would reuse the same
+        // unique `id` and be rejected as a duplicate.
+        val docName: String
+        if (item.frappeDocName.isNotBlank()) {
+            val patch = buildMap<String, Any?> {
+                if (!createdNoteDocName.isNullOrBlank()) put("note", createdNoteDocName)
+                if (!item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()) {
+                    put("reference_doctype", item.referenceDoctype)
+                    put("reference_docname", item.referenceDocname)
+                }
             }
-            logResp = service.createResource("Call Log", classicPayload)
-        }
+            if (patch.isNotEmpty()) {
+                service.updateResource("CRM Call Log", item.frappeDocName, patch)
+            }
+            docName = item.frappeDocName
+        } else {
+            _syncStage.value = "Logging call in Frappe CRM…"
+            var logResp = service.createResource("CRM Call Log", fullCrmPayload)
+            if (!logResp.isSuccessful && logResp.code() in setOf(400, 417)) {
+                // Retry with minimal core fields in case site customized/removed optional link fields
+                logResp = service.createResource("CRM Call Log", baseCallPayload)
+            }
+            if (!logResp.isSuccessful && logResp.code() == 404) {
+                // Fallback to classic ERPNext `Call Log` DocType
+                val classicPayload = buildMap<String, Any?> {
+                    putAll(baseCallPayload)
+                    if (!item.note.isNullOrBlank()) put("summary", item.note)
+                }
+                logResp = service.createResource("Call Log", classicPayload)
+            }
 
-        if (!logResp.isSuccessful) {
-            val errDetail = extractFrappeError(logResp.code(), logResp.errorBody()?.string())
-            error("CRM Call Log failed ($errDetail)")
+            if (!logResp.isSuccessful) {
+                val errDetail = extractFrappeError(logResp.code(), logResp.errorBody()?.string())
+                error("CRM Call Log failed ($errDetail)")
+            }
+                docName = logResp.body()?.data?.str("name").orEmpty()
         }
-        val docName = logResp.body()?.data?.str("name").orEmpty()
 
         // Step 4: Optionally schedule Follow-Up Task
         if (!item.nextFollowUpDate.isNullOrBlank()) {
@@ -816,6 +854,73 @@ class CrmRepository(
         }
     }
 
+    /**
+     * Advances a lead's status after a call (e.g. New -> Contacted). Best effort: the local cache is
+     * updated first so the UI reflects it, and a CRM failure is reported without losing the call.
+     */
+    suspend fun updateLeadStatus(docname: String, status: String): RepoResult<Unit> = withContext(Dispatchers.IO) {
+        leadDao.updateStatus(docname, status)
+        val session = credentialStore.getAuthSession()
+        if (!session.isAuthenticated) return@withContext RepoResult.Success(Unit)
+        val (_, service) = ensureCsrfService(session)
+        runCatching {
+            val resp = service.updateResource("CRM Lead", docname, mapOf("status" to status))
+            if (resp.isSuccessful) RepoResult.Success(Unit)
+            else RepoResult.Error("Lead status saved locally; CRM said ${extractFrappeError(resp.code(), resp.errorBody()?.string())}")
+        }.getOrElse { RepoResult.Error("Lead status saved locally; will not reach CRM offline.") }
+    }
+
+    /** Creates a CRM Lead for an unknown caller and links the call to it. */
+    suspend fun createLeadFromCall(callLogId: Long, fullName: String): RepoResult<String> = withContext(Dispatchers.IO) {
+        val log = callLogDao.getById(callLogId) ?: return@withContext RepoResult.Error("Call not found.")
+        val session = credentialStore.getAuthSession()
+        if (!session.isAuthenticated) return@withContext RepoResult.Error("Sign in first.")
+        val (_, service) = ensureCsrfService(session)
+        val cleanName = fullName.trim()
+        val first = cleanName.substringBefore(' ')
+        val last = cleanName.substringAfter(' ', "")
+        runCatching {
+            val payload = buildMap<String, Any?> {
+                put("first_name", first)
+                if (last.isNotBlank()) put("last_name", last)
+                put("mobile_no", log.phoneNumber)
+                put("status", "New")
+            }
+            val resp = service.createResource("CRM Lead", payload)
+            if (!resp.isSuccessful) {
+                return@withContext RepoResult.Error(
+                    "Could not create lead (${extractFrappeError(resp.code(), resp.errorBody()?.string())})."
+                )
+            }
+            val docname = resp.body()?.data?.str("name").orEmpty()
+            if (docname.isBlank()) return@withContext RepoResult.Error("CRM did not return a lead id.")
+            leadDao.upsertAll(
+                listOf(
+                    LeadEntity(
+                        name = docname, leadName = cleanName, organization = "", status = "New",
+                        email = "", phone = "", mobileNo = log.phoneNumber,
+                        normalizedPhone = PhoneNormalizer.normalize(log.phoneNumber),
+                        source = "", lastNote = "", modified = ""
+                    )
+                )
+            )
+            callLogDao.update(
+                log.copy(referenceDoctype = "CRM Lead", referenceDocname = docname, matchedName = cleanName)
+            )
+            if (log.frappeDocName.isNotBlank()) {
+                runCatching {
+                    service.updateResource(
+                        "CRM Call Log", log.frappeDocName,
+                        mapOf("reference_doctype" to "CRM Lead", "reference_docname" to docname)
+                    )
+                }
+            }
+            RepoResult.Success(docname)
+        }.getOrElse { RepoResult.Error("Could not reach Frappe to create the lead.") }
+    }
+
+    suspend fun leadStatusOf(docname: String): String? = leadDao.getByName(docname)?.status
+
     fun enqueueSyncWorker() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -847,5 +952,40 @@ class CrmRepository(
             }
         }
         return System.currentTimeMillis()
+    }
+
+    companion object {
+        private const val PAGE_SIZE = 500
+        private const val MAX_SYNC_ROWS = 5000
+
+        /**
+         * Builds the minimal CRM Call Log payload. `from`/`to` are both required and phone-validated
+         * by Frappe: the customer number on one side, the rep's SIM number (or placeholder) on the other.
+         */
+        internal fun buildCallLogBasePayload(
+            callUniqueId: String,
+            direction: CallDirection,
+            customerNumber: String,
+            repNumber: String,
+            durationSeconds: Int,
+            startTime: String,
+            endTime: String,
+            recordingUrl: String?
+        ): Map<String, Any?> = buildMap {
+            put("id", callUniqueId)
+            put("type", direction.frappeType)
+            put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
+            put("duration", durationSeconds)
+            put("start_time", startTime)
+            put("end_time", endTime)
+            if (direction == CallDirection.OUTGOING) {
+                put("from", repNumber)
+                put("to", customerNumber)
+            } else {
+                put("from", customerNumber)
+                put("to", repNumber)
+            }
+            if (!recordingUrl.isNullOrBlank()) put("recording_url", recordingUrl)
+        }
     }
 }

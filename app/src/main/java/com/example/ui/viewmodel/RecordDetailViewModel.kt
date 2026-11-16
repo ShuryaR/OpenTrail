@@ -117,6 +117,10 @@ class RecordDetailViewModel(
         audioPlaybackManager.seekTo(positionMs)
     }
 
+    fun cycleAudioSpeed() {
+        audioPlaybackManager.cycleSpeed()
+    }
+
     fun addNote(title: String, content: String) {
         if (content.isBlank()) return
         viewModelScope.launch {

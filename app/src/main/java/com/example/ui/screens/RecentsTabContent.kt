@@ -69,6 +69,7 @@ fun RecentsTabContent(
     onRetrySync: (Long) -> Unit,
     onToggleAudio: (CallLogEntity) -> Unit,
     onSeekAudio: (Int) -> Unit,
+    onCycleSpeed: () -> Unit = {},
     onOpenDialer: () -> Unit
 ) {
     if (calls.isEmpty()) {
@@ -161,7 +162,8 @@ fun RecentsTabContent(
                     onAddNote = { if (callLog.id > 0L) onAddNote(callLog.id) },
                     onRetrySync = { if (callLog.id > 0L) onRetrySync(callLog.id) },
                     onToggleAudio = { onToggleAudio(callLog) },
-                    onSeekAudio = onSeekAudio
+                    onSeekAudio = onSeekAudio,
+                    onCycleSpeed = onCycleSpeed
                 )
             }
         }
@@ -177,7 +179,8 @@ private fun RecentCallCard(
     onAddNote: () -> Unit,
     onRetrySync: () -> Unit,
     onToggleAudio: () -> Unit,
-    onSeekAudio: (Int) -> Unit
+    onSeekAudio: (Int) -> Unit,
+    onCycleSpeed: () -> Unit = {}
 ) {
     val direction = runCatching { CallDirection.valueOf(callLog.direction) }
         .getOrDefault(CallDirection.OUTGOING)
@@ -374,7 +377,8 @@ private fun RecentCallCard(
                     fallbackDurationSec = callLog.durationSeconds,
                     playbackState = playbackState,
                     onTogglePlay = onToggleAudio,
-                    onSeek = onSeekAudio
+                    onSeek = onSeekAudio,
+                    onCycleSpeed = onCycleSpeed
                 )
             }
         }

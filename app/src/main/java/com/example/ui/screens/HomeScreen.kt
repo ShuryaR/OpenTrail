@@ -61,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -94,16 +95,33 @@ fun HomeScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val wrapUpCall by viewModel.wrapUpCallLog.collectAsStateWithLifecycle()
+    val wrapUpContext by viewModel.wrapUpContext.collectAsStateWithLifecycle()
+    val logPrompt by viewModel.logPrompt.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var health by remember { mutableStateOf(PermissionHelper.checkHealth(context)) }
     var showDialerSheet by remember { mutableStateOf(false) }
+    // The dialer button hides while the list scrolls up and returns on scroll down, so it never
+    // sits on top of a row's call button.
+    var fabVisible by remember { mutableStateOf(true) }
+    val fabScrollConnection = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (available.y < -6f) fabVisible = false else if (available.y > 6f) fabVisible = true
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
     var activeSims by remember { mutableStateOf<List<SimSlotInfo>>(emptyList()) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 health = PermissionHelper.checkHealth(context)
+                viewModel.checkRecentUnlogged()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -114,6 +132,21 @@ fun HomeScreen(
         if (showDialerSheet) {
             activeSims = SimManager.getActiveSims(context)
         }
+    }
+
+    LaunchedEffect(logPrompt) {
+        val call = logPrompt ?: return@LaunchedEffect
+        val who = call.matchedName ?: com.example.util.PhoneNormalizer.formatDisplay(call.phoneNumber)
+        val result = snackbarHostState.showSnackbar(
+            message = "Log your call with $who?",
+            actionLabel = "Log now",
+            withDismissAction = true,
+            duration = androidx.compose.material3.SnackbarDuration.Long
+        )
+        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+            viewModel.openWrapUpForCall(call.id)
+        }
+        viewModel.dismissLogPrompt()
     }
 
     LaunchedEffect(state.statusMessage) {
@@ -131,6 +164,7 @@ fun HomeScreen(
             containerColor = MaterialTheme.colorScheme.background,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
+              Column {
                 TopAppBar(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background
@@ -143,7 +177,11 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = state.syncStage ?: state.selectedTab.label,
+                                text = state.syncStage ?: "${state.selectedTab.label} · synced " +
+                                    com.example.util.RelativeTime.format(
+                                        System.currentTimeMillis(),
+                                        state.settings.lastSyncEpochMs
+                                    ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (state.syncStage != null) {
                                     MaterialTheme.colorScheme.primary
@@ -184,6 +222,14 @@ fun HomeScreen(
                         }
                     }
                 )
+                Box(modifier = Modifier.fillMaxWidth().height(3.dp)) {
+                    if (state.isRefreshing || state.syncStage != null) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().testTag("sync_progress_bar")
+                        )
+                    }
+                }
+              }
             },
             floatingActionButton = {
                 if (useRail) {
@@ -196,17 +242,23 @@ fun HomeScreen(
                         modifier = Modifier.testTag("home_dialer_fab")
                     )
                 } else {
-                    FloatingActionButton(
-                        onClick = { showDialerSheet = true },
-                        containerColor = SignalGreen,
-                        contentColor = Color.White,
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.testTag("home_dialer_fab")
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = fabVisible,
+                        enter = androidx.compose.animation.scaleIn() + androidx.compose.animation.fadeIn(),
+                        exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut()
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Dialpad,
-                            contentDescription = "Open SIM Dialer keypad"
-                        )
+                        FloatingActionButton(
+                            onClick = { showDialerSheet = true },
+                            containerColor = SignalGreen,
+                            contentColor = Color.White,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.testTag("home_dialer_fab")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Dialpad,
+                                contentDescription = "Open SIM Dialer keypad"
+                            )
+                        }
                     }
                 }
             },
@@ -279,6 +331,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .widthIn(max = 840.dp)
                             .fillMaxSize()
+                            .nestedScroll(fabScrollConnection)
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -295,8 +348,9 @@ fun HomeScreen(
                             unloggedCallsCount = state.unloggedCallsCount,
                             syncStage = state.syncStage,
                             syncConfirmedBanner = state.syncConfirmedBanner,
-                            onOpenRecents = { viewModel.selectTab(HomeTab.RECENTS) },
-                            onOpenSyncQueue = onOpenSettingsSync
+                            onLogUnlogged = { viewModel.startBacklog() },
+                            onOpenSyncQueue = onOpenSettingsSync,
+                            compact = state.selectedTab != HomeTab.RECENTS
                         )
 
                         OutlinedTextField(
@@ -315,49 +369,79 @@ fun HomeScreen(
                                 .testTag("pipeline_search_input")
                         )
 
-                        when (state.selectedTab) {
-                            HomeTab.RECENTS -> RecentsTabContent(
-                                calls = state.recentCalls,
-                                playbackState = state.playbackState,
-                                onCall = { phone -> viewModel.placeCall(context, phone) },
-                                onOpenRecord = onOpenRecord,
-                                onAddNote = { callId -> viewModel.openWrapUpForCall(callId) },
-                                onRetrySync = { callId -> viewModel.retryCallLog(callId) },
-                                onToggleAudio = { callLog -> viewModel.toggleAudioPlayback(callLog) },
-                                onSeekAudio = { pos -> viewModel.seekAudio(pos) },
-                                onOpenDialer = { showDialerSheet = true }
-                            )
+                        val tabEmpty = when (state.selectedTab) {
+                            HomeTab.RECENTS -> state.recentCalls.isEmpty()
+                            HomeTab.TASKS -> state.tasks.isEmpty()
+                            HomeTab.LEADS -> state.leads.isEmpty()
+                            HomeTab.DEALS -> state.deals.isEmpty()
+                            HomeTab.CONTACTS -> state.contacts.isEmpty()
+                        }
+                        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                            isRefreshing = state.isRefreshing,
+                            onRefresh = { viewModel.refreshPipeline() },
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            if (tabEmpty && state.isRefreshing) {
+                                com.example.ui.components.SkeletonList()
+                            } else if (tabEmpty && state.searchQuery.isNotBlank()) {
+                                com.example.ui.components.SearchEmptyState(
+                                    query = state.searchQuery,
+                                    onClear = { viewModel.updateSearchQuery("") }
+                                )
+                            } else {
+                            when (state.selectedTab) {
+                                HomeTab.RECENTS -> RecentsTabContent(
+                                    calls = state.recentCalls,
+                                    playbackState = state.playbackState,
+                                    onCall = { phone -> viewModel.placeCall(context, phone) },
+                                    onOpenRecord = onOpenRecord,
+                                    onAddNote = { callId -> viewModel.openWrapUpForCall(callId) },
+                                    onRetrySync = { callId -> viewModel.retryCallLog(callId) },
+                                    onToggleAudio = { callLog -> viewModel.toggleAudioPlayback(callLog) },
+                                    onSeekAudio = { pos -> viewModel.seekAudio(pos) },
+                                    onCycleSpeed = { viewModel.cycleAudioSpeed() },
+                                    onOpenDialer = { showDialerSheet = true }
+                                )
 
-                            HomeTab.TASKS -> TasksTabContent(
-                                tasks = state.tasks,
-                                onCall = { phone -> viewModel.placeCall(context, phone) },
-                                onToggleDone = { task -> viewModel.toggleTaskDone(task) },
-                                onOpenRecord = onOpenRecord,
-                                onRefresh = { viewModel.refreshPipeline() }
-                            )
+                                HomeTab.TASKS -> TasksTabContent(
+                                    tasks = remember(state.tasks, state.leads, state.deals, state.contacts) {
+                                        enrichTasks(state.tasks, state.leads, state.deals, state.contacts)
+                                    },
+                                    onCall = { phone -> viewModel.placeCall(context, phone) },
+                                    onToggleDone = { task -> viewModel.toggleTaskDone(task) },
+                                    onOpenRecord = onOpenRecord,
+                                    onRefresh = { viewModel.refreshPipeline() }
+                                )
 
-                            HomeTab.LEADS -> LeadsTabContent(
-                                leads = state.leads,
-                                selectedStatus = state.selectedLeadStatus,
-                                onSelectStatus = { viewModel.selectLeadStatus(it) },
-                                onCall = { phone -> viewModel.placeCall(context, phone) },
-                                onOpenLead = { lead -> onOpenRecord("CRM Lead", lead.name) },
-                                onRefresh = { viewModel.refreshPipeline() }
-                            )
+                                HomeTab.LEADS -> LeadsTabContent(
+                                    leads = state.leads,
+                                    selectedStatus = state.selectedLeadStatus,
+                                    onSelectStatus = { viewModel.selectLeadStatus(it) },
+                                    onCall = { phone -> viewModel.placeCall(context, phone) },
+                                    onOpenLead = { lead -> onOpenRecord("CRM Lead", lead.name) },
+                                    onRefresh = { viewModel.refreshPipeline() },
+                                    insights = remember(state.leads, state.recentCalls, state.tasks) {
+                                        com.example.ui.screens.buildLeadInsights(
+                                            state.leads, state.recentCalls, state.tasks, System.currentTimeMillis()
+                                        )
+                                    }
+                                )
 
-                            HomeTab.DEALS -> DealsTabContent(
-                                deals = state.deals,
-                                onCall = { phone -> viewModel.placeCall(context, phone) },
-                                onOpenDeal = { deal -> onOpenRecord("CRM Deal", deal.name) },
-                                onRefresh = { viewModel.refreshPipeline() }
-                            )
+                                HomeTab.DEALS -> DealsTabContent(
+                                    deals = state.deals,
+                                    onCall = { phone -> viewModel.placeCall(context, phone) },
+                                    onOpenDeal = { deal -> onOpenRecord("CRM Deal", deal.name) },
+                                    onRefresh = { viewModel.refreshPipeline() }
+                                )
 
-                            HomeTab.CONTACTS -> ContactsTabContent(
-                                contacts = state.contacts,
-                                onCall = { phone -> viewModel.placeCall(context, phone) },
-                                onOpenContact = { c -> onOpenRecord("Contact", c.name) },
-                                onRefresh = { viewModel.refreshPipeline() }
-                            )
+                                HomeTab.CONTACTS -> ContactsTabContent(
+                                    contacts = state.contacts,
+                                    onCall = { phone -> viewModel.placeCall(context, phone) },
+                                    onOpenContact = { c -> onOpenRecord("Contact", c.name) },
+                                    onRefresh = { viewModel.refreshPipeline() }
+                                )
+                            }
+                            }
                         }
                     }
                 }
@@ -369,6 +453,7 @@ fun HomeScreen(
         DialerKeypadSheet(
             digits = state.dialerDigits,
             matches = state.dialerMatches,
+            recents = state.dialerRecents,
             activeSims = activeSims,
             defaultSimPreference = state.settings.workSimPreference,
             onAppendDigit = { viewModel.appendDialerDigit(it) },
@@ -388,9 +473,12 @@ fun HomeScreen(
     wrapUpCall?.let { callLog ->
         PostCallNoteSheet(
             callLog = callLog,
-            onSave = { disp, note, followUp ->
-                viewModel.submitWrapUp(callLog.id, disp, note, followUp)
+            wrapUpContext = wrapUpContext,
+            onSave = { disp, note, followUp, doneTasks, leadStatus ->
+                viewModel.submitWrapUp(callLog.id, disp, note, followUp, doneTasks, leadStatus)
             },
+            onSkip = { viewModel.skipWrapUp() },
+            onCreateLead = { viewModel.createLeadForWrapUp(it) },
             onDismiss = { viewModel.dismissWrapUp() }
         )
     }

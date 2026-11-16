@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.material.icons.filled.Warning
+import kotlinx.coroutines.launch
 import com.example.R
 import com.example.ui.theme.HealthGreen
 import com.example.util.PermissionHelper
@@ -284,6 +286,10 @@ fun PermissionWizardScreen(
                     onAction = { PermissionHelper.openOverlayPermissionSettings(context) }
                 )
 
+                OemTipsCard(context)
+
+                SelfTestCard(context, accessibilityReady = health.accessibilityEnabled)
+
                 // VoWiFi Warning Tip
                 Surface(
                     shape = RoundedCornerShape(14.dp),
@@ -412,6 +418,99 @@ private fun WizardStepCard(
                         .testTag(testTag)
                 ) {
                     Text(actionLabel)
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun OemTipsCard(context: android.content.Context) {
+    val guide = remember { com.example.util.OemGuide.forManufacturer(android.os.Build.MANUFACTURER) }
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.testTag("wizard_oem_tips")
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Tips for ${guide.brand}", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "These settings are easy to miss and are the usual reason recordings stop.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            guide.steps.forEachIndexed { i, step ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${i + 1}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(step, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            androidx.compose.material3.OutlinedButton(
+                onClick = { PermissionHelper.openAppInfoForRestrictedSettings(context) },
+                modifier = Modifier.fillMaxWidth().testTag("wizard_oem_open_app_info")
+            ) { Text("Open OneBook app settings") }
+        }
+    }
+}
+
+@Composable
+private fun SelfTestCard(context: android.content.Context, accessibilityReady: Boolean) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<com.example.service.SelfTestResult?>(null) }
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.testTag("wizard_self_test")
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Test my setup", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Records three seconds from the microphone and reports what it heard. Say a few words while it runs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            androidx.compose.material3.FilledTonalButton(
+                onClick = {
+                    running = true
+                    result = null
+                    scope.launch {
+                        val service = com.example.service.CallRecorderAccessibilityService.instance
+                        val source = (context.applicationContext as com.example.OneBookApplication)
+                            .credentialStore.getSettings().audioSource
+                        result = if (service == null) {
+                            com.example.service.SelfTestResult(
+                                false, 0,
+                                "The recorder service is off. Finish step 3 and switch OneBook Call Recorder on in Accessibility."
+                            )
+                        } else {
+                            service.runSelfTest(source)
+                        }
+                        running = false
+                    }
+                },
+                enabled = !running,
+                modifier = Modifier.fillMaxWidth().testTag("wizard_self_test_button")
+            ) {
+                if (running) {
+                    androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Listening…")
+                } else {
+                    Text("Run 3-second test")
+                }
+            }
+            result?.let { r ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    Icon(
+                        imageVector = if (r.ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                        contentDescription = if (r.ok) "Test passed" else "Test needs attention",
+                        tint = if (r.ok) HealthGreen else MaterialTheme.colorScheme.error
+                    )
+                    Text(r.message, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("wizard_self_test_result"))
                 }
             }
         }

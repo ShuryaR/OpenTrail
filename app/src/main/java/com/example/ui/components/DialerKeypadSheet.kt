@@ -95,6 +95,7 @@ private val DIAL_ROWS = listOf(
 fun DialerKeypadSheet(
     digits: String,
     matches: List<DialerCrmMatch>,
+    recents: List<DialerCrmMatch>,
     activeSims: List<SimSlotInfo>,
     defaultSimPreference: WorkSimPreference,
     onAppendDigit: (Char) -> Unit,
@@ -163,12 +164,21 @@ fun DialerKeypadSheet(
             }
 
             // Doherty Threshold: Instant live CRM match chips as user types
-            AnimatedVisibility(visible = matches.isNotEmpty()) {
+            val idle = digits.isBlank()
+            val chips = if (idle) recents else matches
+            if (idle && chips.isNotEmpty()) {
+                Text(
+                    text = "Recent",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            AnimatedVisibility(visible = chips.isNotEmpty()) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 2.dp)
                 ) {
-                    items(matches, key = { "${it.doctype}_${it.docname}_${it.phoneNumber}" }) { match ->
+                    items(chips, key = { "${it.doctype}_${it.docname}_${it.phoneNumber}" }) { match ->
                         Surface(
                             onClick = { onSelectMatch(match) },
                             shape = RoundedCornerShape(14.dp),
@@ -187,7 +197,8 @@ fun DialerKeypadSheet(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "${match.doctype} • ${PhoneNormalizer.formatDisplay(match.phoneNumber)}",
+                                    text = if (idle) match.subtitle
+                                    else "${match.doctype} • ${PhoneNormalizer.formatDisplay(match.phoneNumber)}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                                     maxLines = 1

@@ -18,6 +18,12 @@ interface LeadDao {
     @Query("SELECT * FROM leads WHERE normalizedPhone = :normalizedPhone LIMIT 1")
     suspend fun findByNormalizedPhone(normalizedPhone: String): LeadEntity?
 
+    @Query("SELECT * FROM leads WHERE name = :name LIMIT 1")
+    suspend fun getByName(name: String): LeadEntity?
+
+    @Query("UPDATE leads SET status = :status WHERE name = :name")
+    suspend fun updateStatus(name: String, status: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<LeadEntity>)
 

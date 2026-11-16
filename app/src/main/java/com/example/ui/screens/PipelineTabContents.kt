@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -55,6 +61,35 @@ import com.example.ui.theme.JetBrainsMono
 import com.example.ui.theme.SignalGreen
 import com.example.util.PhoneNormalizer
 
+enum class TaskBucket(val label: String) {
+    OVERDUE("Overdue"),
+    TODAY("Today"),
+    UPCOMING("Upcoming"),
+    ANYTIME("No due date"),
+    DONE("Done")
+}
+
+/** Groups tasks by due date. [todayIso] is `yyyy-MM-dd`; due dates may carry a time suffix. */
+fun bucketTasks(tasks: List<TaskEntity>, todayIso: String): Map<TaskBucket, List<TaskEntity>> {
+    fun bucketOf(task: TaskEntity): TaskBucket {
+        if (task.isCompleted) return TaskBucket.DONE
+        val due = task.dueDate.take(10)
+        return when {
+            due.isBlank() -> TaskBucket.ANYTIME
+            due < todayIso -> TaskBucket.OVERDUE
+            due == todayIso -> TaskBucket.TODAY
+            else -> TaskBucket.UPCOMING
+        }
+    }
+    val grouped = tasks.groupBy(::bucketOf)
+    return TaskBucket.entries.mapNotNull { bucket ->
+        grouped[bucket]?.let { list ->
+            bucket to if (bucket == TaskBucket.DONE) list else list.sortedBy { it.dueDate }
+        }
+    }.toMap()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TasksTabContent(
     tasks: List<TaskEntity>,
@@ -71,90 +106,161 @@ fun TasksTabContent(
         )
         return
     }
+    val todayIso = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
+    val groups = remember(tasks, todayIso) { bucketTasks(tasks, todayIso) }
+
     LazyColumn(
         contentPadding = PaddingValues(bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(tasks, key = { it.name }) { task ->
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = task.referenceDoctype.isNotBlank() && task.referenceDocname.isNotBlank()) {
-                        onOpenRecord(task.referenceDoctype, task.referenceDocname)
-                    }
-            ) {
+        groups.forEach { (bucket, bucketTasks) ->
+            item(key = "header_${bucket.name}") {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(
-                        onClick = { onToggleDone(task) },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("task_done_${task.name}")
-                    ) {
-                        Icon(
-                            imageVector = if (task.isCompleted) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                            contentDescription = "Mark task done",
-                            tint = if (task.isCompleted) SignalGreen else MaterialTheme.colorScheme.outline
-                        )
-                    }
+                    Text(
+                        text = bucket.label.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (bucket == TaskBucket.OVERDUE) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = "${bucketTasks.size}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            items(bucketTasks, key = { it.name }) { task ->
+                SwipeableTaskCard(task, bucket, onCall, onToggleDone, onOpenRecord)
+            }
+        }
+    }
+}
 
-                    Spacer(modifier = Modifier.width(8.dp))
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableTaskCard(
+    task: TaskEntity,
+    bucket: TaskBucket,
+    onCall: (String) -> Unit,
+    onToggleDone: (TaskEntity) -> Unit,
+    onOpenRecord: (String, String) -> Unit
+) {
+    // Swiping right toggles done but never removes the row itself: the list re-groups when the
+    // task state changes, so the card moves to Done instead of vanishing.
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd) onToggleDone(task)
+            false
+        }
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(SignalGreen.copy(alpha = 0.85f))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = if (task.isCompleted) "Reopen task" else "Mark task done",
+                    tint = Color.White
+                )
+            }
+        }
+    ) {
+        TaskCard(task, bucket, onCall, onToggleDone, onOpenRecord)
+    }
+}
 
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            text = task.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val meta = listOf(
-                            task.dueDate.ifBlank { "Today" },
-                            task.priority,
-                            task.referenceDocname
-                        ).filter { it.isNotBlank() }.joinToString(" • ")
-                        Text(
-                            text = meta,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (task.phone.isNotBlank()) {
-                            Text(
-                                text = PhoneNormalizer.formatDisplay(task.phone),
-                                style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
+@Composable
+private fun TaskCard(
+    task: TaskEntity,
+    bucket: TaskBucket,
+    onCall: (String) -> Unit,
+    onToggleDone: (TaskEntity) -> Unit,
+    onOpenRecord: (String, String) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            1.dp,
+            if (bucket == TaskBucket.OVERDUE) MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.outlineVariant
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = task.referenceDoctype.isNotBlank() && task.referenceDocname.isNotBlank()) {
+                onOpenRecord(task.referenceDoctype, task.referenceDocname)
+            }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = { onToggleDone(task) },
+                modifier = Modifier.size(48.dp).testTag("task_done_${task.name}")
+            ) {
+                Icon(
+                    imageVector = if (task.isCompleted) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                    contentDescription = if (task.isCompleted) "Reopen task" else "Mark task done",
+                    tint = if (task.isCompleted) SignalGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
-                    if (task.phone.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(10.dp))
-                        FilledIconButton(
-                            onClick = { onCall(task.phone) },
-                            shape = CircleShape,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = SignalGreen,
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier
-                                .size(48.dp)
-                                .testTag("task_call_${task.name}")
-                        ) {
-                            Icon(Icons.Filled.Call, contentDescription = "Call task contact")
-                        }
-                    }
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val meta = listOf(
+                    task.dueDate.take(10).ifBlank { "No date" },
+                    task.priority,
+                    task.contactName.ifBlank { task.referenceDocname }
+                ).filter { it.isNotBlank() }.joinToString(" • ")
+                Text(
+                    text = meta,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (task.phone.isNotBlank()) {
+                    Text(
+                        text = PhoneNormalizer.formatDisplay(task.phone),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            if (task.phone.isNotBlank()) {
+                Spacer(modifier = Modifier.width(10.dp))
+                FilledIconButton(
+                    onClick = { onCall(task.phone) },
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = SignalGreen,
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier.size(48.dp).testTag("task_call_${task.name}")
+                ) {
+                    Icon(Icons.Filled.Call, contentDescription = "Call ${task.contactName.ifBlank { "task contact" }}")
                 }
             }
         }
@@ -168,7 +274,8 @@ fun LeadsTabContent(
     onSelectStatus: (String) -> Unit,
     onCall: (String) -> Unit,
     onOpenLead: (LeadEntity) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    insights: Map<String, String> = emptyMap()
 ) {
     val statuses = listOf("All", "New", "Contacted", "Qualified", "Converted", "Lost")
 
@@ -261,6 +368,24 @@ fun LeadsTabContent(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
+                            insights[lead.name]?.let { line ->
+                                Text(
+                                    text = line,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (lead.lastNote.isNotBlank()) {
+                                Text(
+                                    text = lead.lastNote,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(12.dp))
@@ -323,7 +448,7 @@ fun DealsTabContent(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${stageDeals.size} deals",
+                        text = "${stageDeals.size} deals" + stageTotalLabel(stageDeals),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -545,12 +670,14 @@ private fun EmptyPipelineState(
         Text(
             text = title,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
         Text(
             text = subtitle,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
         Spacer(modifier = Modifier.height(4.dp))
         OutlinedButton(
@@ -560,6 +687,72 @@ private fun EmptyPipelineState(
             Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Sync from Frappe CRM")
+        }
+    }
+}
+
+
+/**
+ * Frappe tasks only carry a reference doctype/name. Resolve the linked Lead/Deal/Contact from the
+ * local cache so the Tasks tab can show a real name and a one-tap call button.
+ */
+fun enrichTasks(
+    tasks: List<TaskEntity>,
+    leads: List<com.example.data.local.LeadEntity>,
+    deals: List<com.example.data.local.DealEntity>,
+    contacts: List<com.example.data.local.ContactEntity>
+): List<TaskEntity> {
+    val leadMap = leads.associateBy { it.name }
+    val dealMap = deals.associateBy { it.name }
+    val contactMap = contacts.associateBy { it.name }
+    return tasks.map { task ->
+        val (name, phone) = when (task.referenceDoctype) {
+            "CRM Lead", "Lead" -> leadMap[task.referenceDocname]?.let { it.leadName to it.mobileNo.ifBlank { it.phone } }
+            "CRM Deal", "Opportunity" -> dealMap[task.referenceDocname]?.let { it.dealTitle to it.phone }
+            "Contact" -> contactMap[task.referenceDocname]?.let { it.fullName to it.mobileNo.ifBlank { it.phone } }
+            else -> null
+        } ?: ("" to "")
+        task.copy(contactName = name, phone = task.phone.ifBlank { phone })
+    }
+}
+
+
+/** " · INR 12,34,000" for a stage's open value, or "" when no deal carries a value. */
+fun stageTotalLabel(deals: List<DealEntity>): String {
+    val byCurrency = deals.filter { it.dealValue > 0.0 }.groupBy { it.currency }
+        .mapValues { (_, list) -> list.sumOf { it.dealValue } }
+    if (byCurrency.isEmpty()) return ""
+    return " · " + byCurrency.entries.joinToString(" + ") { (cur, total) -> "$cur ${"%,.0f".format(total)}" }
+}
+
+/**
+ * One line per lead for the Leads list: when you last called and what is next. Built from the
+ * local call log and tasks so it works offline.
+ */
+fun buildLeadInsights(
+    leads: List<LeadEntity>,
+    calls: List<com.example.data.local.CallLogEntity>,
+    tasks: List<TaskEntity>,
+    nowMs: Long
+): Map<String, String> {
+    val lastCallByPhone = HashMap<String, Long>()
+    calls.forEach { c ->
+        if (c.normalizedPhone.isNotBlank()) {
+            lastCallByPhone.merge(c.normalizedPhone, c.timestampMs) { a, b -> maxOf(a, b) }
+        }
+    }
+    val nextTaskByLead = tasks.filter { !it.isCompleted && it.dueDate.isNotBlank() }
+        .groupBy { it.referenceDocname }
+        .mapValues { (_, list) -> list.minOf { it.dueDate.take(10) } }
+    return buildMap {
+        leads.forEach { lead ->
+            val parts = buildList {
+                lastCallByPhone[lead.normalizedPhone]?.let {
+                    add("Called " + com.example.util.RelativeTime.format(nowMs, it))
+                }
+                nextTaskByLead[lead.name]?.let { add("Task due $it") }
+            }
+            if (parts.isNotEmpty()) put(lead.name, parts.joinToString(" · "))
         }
     }
 }

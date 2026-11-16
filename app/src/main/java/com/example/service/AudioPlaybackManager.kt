@@ -22,7 +22,9 @@ data class PlaybackUiState(
     val isLoading: Boolean = false,
     val positionMs: Int = 0,
     val durationMs: Int = 0,
-    val error: String? = null
+    val error: String? = null,
+    val speed: Float = 1f,
+    val waveform: List<Float> = emptyList()
 )
 
 class AudioPlaybackManager(
@@ -32,6 +34,7 @@ class AudioPlaybackManager(
     private val scope = CoroutineScope(Dispatchers.Main)
     private var mediaPlayer: MediaPlayer? = null
     private var progressJob: Job? = null
+    private var speed: Float = 1f
 
     private val _state = MutableStateFlow(PlaybackUiState())
     val state: StateFlow<PlaybackUiState> = _state.asStateFlow()
@@ -44,6 +47,7 @@ class AudioPlaybackManager(
                 _state.value = current.copy(isPlaying = false)
             } else {
                 mediaPlayer?.start()
+                applySpeed()
                 _state.value = current.copy(isPlaying = true)
                 startProgressLoop()
             }
@@ -65,6 +69,24 @@ class AudioPlaybackManager(
                 return@launch
             }
             startMediaPlayer(key, playableFile)
+            // Waveform is decoded after playback starts so it never delays the first sound.
+            val peaks = withContext(Dispatchers.IO) { WaveformExtractor.extract(playableFile) }
+            if (_state.value.activeKey == key && peaks.isNotEmpty()) {
+                _state.value = _state.value.copy(waveform = peaks)
+            }
+        }
+    }
+
+    /** Cycles 1x, 1.5x, 2x. Applied only while playing: setting speed on a paused player can resume it. */
+    fun cycleSpeed() {
+        speed = when (speed) { 1f -> 1.5f; 1.5f -> 2f; else -> 1f }
+        _state.value = _state.value.copy(speed = speed)
+        if (_state.value.isPlaying) applySpeed()
+    }
+
+    private fun applySpeed() {
+        runCatching {
+            mediaPlayer?.let { it.playbackParams = it.playbackParams.setSpeed(speed) }
         }
     }
 
@@ -85,7 +107,7 @@ class AudioPlaybackManager(
             mediaPlayer?.release()
         }
         mediaPlayer = null
-        _state.value = PlaybackUiState()
+        _state.value = PlaybackUiState(speed = speed)
     }
 
     private fun startMediaPlayer(key: String, file: File) {
@@ -103,12 +125,14 @@ class AudioPlaybackManager(
                 start()
             }
             mediaPlayer = mp
+            applySpeed()
             _state.value = PlaybackUiState(
                 activeKey = key,
                 isPlaying = true,
                 isLoading = false,
                 positionMs = 0,
-                durationMs = mp.duration.coerceAtLeast(1)
+                durationMs = mp.duration.coerceAtLeast(1),
+                speed = speed
             )
             startProgressLoop()
         }.onFailure { e ->

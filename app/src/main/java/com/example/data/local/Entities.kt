@@ -137,3 +137,18 @@ data class CrmNoteEntity(
     val createdBy: String,
     val creationTimestamp: String
 )
+
+
+private const val UNLOGGED_WINDOW_MS = 7L * 24 * 60 * 60 * 1000
+
+/**
+ * A call the rep still needs to wrap up: made through this app (queued locally or logged under a
+ * `onebook-` id), not missed, no note or disposition yet, and recent. Calls other reps or the web
+ * app put in the CRM are not the rep's backlog.
+ */
+fun CallLogEntity.isUnlogged(nowMs: Long = System.currentTimeMillis()): Boolean =
+    direction != CallDirection.MISSED.name &&
+        note.isNullOrBlank() &&
+        disposition.isNullOrBlank() &&
+        (frappeDocName.isBlank() || frappeDocName.startsWith("onebook-")) &&
+        nowMs - timestampMs <= UNLOGGED_WINDOW_MS

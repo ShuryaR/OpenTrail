@@ -123,7 +123,8 @@ fun LoginScreen(
                 Text(
                     text = stringResource(R.string.login_title),
                     style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
                     text = stringResource(R.string.login_subtitle),
@@ -139,7 +140,7 @@ fun LoginScreen(
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                     modifier = Modifier.testTag("auth_mode_api_token")
                 ) {
-                    Text("${stringResource(R.string.login_mode_api_key)} (Recommended)")
+                    Text(stringResource(R.string.login_mode_api_key), maxLines = 1)
                 }
                 SegmentedButton(
                     selected = authMode == AuthMode.SESSION_COOKIE,
@@ -147,7 +148,7 @@ fun LoginScreen(
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     modifier = Modifier.testTag("auth_mode_password")
                 ) {
-                    Text(stringResource(R.string.login_mode_password))
+                    Text(stringResource(R.string.login_mode_password), maxLines = 1)
                 }
             }
 

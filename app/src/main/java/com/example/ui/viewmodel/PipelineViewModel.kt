@@ -11,6 +11,7 @@ import com.example.data.local.CallLogEntity
 import com.example.data.local.ContactEntity
 import com.example.data.local.DealEntity
 import com.example.data.local.LeadEntity
+import com.example.data.local.isUnlogged
 import com.example.data.local.TaskEntity
 import com.example.data.repository.CrmRepository
 import com.example.data.repository.RepoResult
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -36,6 +38,16 @@ data class DialerCrmMatch(
     val displayName: String,
     val subtitle: String,
     val phoneNumber: String
+)
+
+/** Extra context shown with the wrap-up sheet: what else this call can update in the CRM. */
+data class WrapUpContext(
+    val leadDocname: String? = null,
+    val leadStatus: String? = null,
+    val openTasks: List<TaskEntity> = emptyList(),
+    val backlogActive: Boolean = false,
+    val backlogRemaining: Int = 0,
+    val creatingLead: Boolean = false
 )
 
 data class PipelineUiState(
@@ -57,7 +69,8 @@ data class PipelineUiState(
     val statusMessage: String? = null,
     val playbackState: PlaybackUiState = PlaybackUiState(),
     val dialerDigits: String = "",
-    val dialerMatches: List<DialerCrmMatch> = emptyList()
+    val dialerMatches: List<DialerCrmMatch> = emptyList(),
+    val dialerRecents: List<DialerCrmMatch> = emptyList()
 )
 
 class PipelineViewModel(
@@ -76,6 +89,16 @@ class PipelineViewModel(
 
     private val _wrapUpCallLog = MutableStateFlow<CallLogEntity?>(null)
     val wrapUpCallLog: StateFlow<CallLogEntity?> = _wrapUpCallLog.asStateFlow()
+
+    private val _wrapUpContext = MutableStateFlow(WrapUpContext())
+    val wrapUpContext: StateFlow<WrapUpContext> = _wrapUpContext.asStateFlow()
+
+    /** Set when the rep returns to the app with a recent call still unlogged. */
+    private val _logPrompt = MutableStateFlow<CallLogEntity?>(null)
+    val logPrompt: StateFlow<CallLogEntity?> = _logPrompt.asStateFlow()
+
+    private var backlogActive = false
+    private val skippedIds = mutableSetOf<Long>()
 
     private val filtersFlow = combine(
         _selectedTab,
@@ -126,11 +149,7 @@ class PipelineViewModel(
 
         val startOfDayMs = startOfTodayMillis()
         val callsTodayCount = data.calls.count { it.timestampMs >= startOfDayMs }
-        val unloggedCount = data.calls.count {
-            it.note.isNullOrBlank() &&
-                it.disposition.isNullOrBlank() &&
-                it.direction != CallDirection.MISSED.name
-        }
+        val unloggedCount = data.calls.count { it.isUnlogged() }
 
         val filteredCalls = if (q.isBlank()) data.calls else data.calls.filter {
             it.matchedName?.lowercase()?.contains(q) == true ||
@@ -196,7 +215,8 @@ class PipelineViewModel(
             statusMessage = filters.message,
             playbackState = playback,
             dialerDigits = filters.dialerDigits,
-            dialerMatches = dialerMatches
+            dialerMatches = dialerMatches,
+            dialerRecents = recentDialerNumbers(data.calls, System.currentTimeMillis())
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PipelineUiState())
 
@@ -313,6 +333,10 @@ class PipelineViewModel(
         audioPlaybackManager.seekTo(positionMs)
     }
 
+    fun cycleAudioSpeed() {
+        audioPlaybackManager.cycleSpeed()
+    }
+
     fun toggleTaskDone(task: TaskEntity) {
         viewModelScope.launch {
             val res = repository.toggleTaskDone(task)
@@ -326,25 +350,135 @@ class PipelineViewModel(
 
     fun openWrapUpForCall(callLogId: Long) {
         viewModelScope.launch {
-            _wrapUpCallLog.value = callLogDao.getById(callLogId)
+            val call = callLogDao.getById(callLogId)
+            _wrapUpCallLog.value = call
+            _wrapUpContext.value = if (call == null) WrapUpContext() else buildWrapUpContext(call)
+        }
+    }
+
+    private suspend fun buildWrapUpContext(call: CallLogEntity): WrapUpContext {
+        val doctype = call.referenceDoctype
+        val docname = call.referenceDocname
+        val isLead = !docname.isNullOrBlank() && (doctype == "CRM Lead" || doctype == "Lead")
+        val openTasks = if (docname.isNullOrBlank()) emptyList() else {
+            repository.tasksFlow.first().filter {
+                !it.isCompleted && it.referenceDocname == docname
+            }
+        }
+        return WrapUpContext(
+            leadDocname = if (isLead) docname else null,
+            leadStatus = if (isLead) repository.leadStatusOf(docname!!) else null,
+            openTasks = openTasks,
+            backlogActive = backlogActive,
+            backlogRemaining = if (backlogActive) remainingBacklog(excluding = call.id) else 0
+        )
+    }
+
+    private suspend fun remainingBacklog(excluding: Long): Int =
+        repository.allCallLogsFlow.first().count {
+            it.isUnlogged() && it.id != excluding && it.id !in skippedIds
+        }
+
+    /** Steps through every unlogged call, newest first, one wrap-up sheet at a time. */
+    fun startBacklog() {
+        viewModelScope.launch {
+            skippedIds.clear()
+            backlogActive = true
+            openNextInBacklog()
+        }
+    }
+
+    private suspend fun openNextInBacklog() {
+        val next = repository.allCallLogsFlow.first()
+            .firstOrNull { it.isUnlogged() && it.id !in skippedIds }
+        if (next == null) {
+            backlogActive = false
+            _wrapUpCallLog.value = null
+            _wrapUpContext.value = WrapUpContext()
+            showPeakEndConfirmation("All calls logged")
+        } else {
+            _wrapUpCallLog.value = next
+            _wrapUpContext.value = buildWrapUpContext(next)
+        }
+    }
+
+    fun skipWrapUp() {
+        val current = _wrapUpCallLog.value ?: return
+        viewModelScope.launch {
+            skippedIds += current.id
+            if (backlogActive) openNextInBacklog() else dismissWrapUp()
         }
     }
 
     fun dismissWrapUp() {
+        backlogActive = false
         _wrapUpCallLog.value = null
+        _wrapUpContext.value = WrapUpContext()
     }
 
     fun submitWrapUp(
         callLogId: Long,
         disposition: String?,
         note: String?,
-        nextFollowUpDate: String?
+        nextFollowUpDate: String?,
+        completeTaskNames: Set<String> = emptySet(),
+        newLeadStatus: String? = null
     ) {
         viewModelScope.launch {
             repository.updatePostCallWrapUp(callLogId, disposition, note, nextFollowUpDate)
-            _wrapUpCallLog.value = null
-            showPeakEndConfirmation("Wrap-up saved & queued for Frappe CRM")
+
+            val ctx = _wrapUpContext.value
+            if (newLeadStatus != null && ctx.leadDocname != null) {
+                val res = repository.updateLeadStatus(ctx.leadDocname, newLeadStatus)
+                if (res is RepoResult.Error) _statusMessage.value = res.message
+            }
+            ctx.openTasks.filter { it.name in completeTaskNames }.forEach { task ->
+                val res = repository.toggleTaskDone(task)
+                if (res is RepoResult.Error) _statusMessage.value = res.message
+            }
+
+            if (backlogActive) {
+                openNextInBacklog()
+            } else {
+                _wrapUpCallLog.value = null
+                _wrapUpContext.value = WrapUpContext()
+                showPeakEndConfirmation("Wrap-up saved & queued for Frappe CRM")
+            }
         }
+    }
+
+    fun createLeadForWrapUp(fullName: String) {
+        val call = _wrapUpCallLog.value ?: return
+        if (fullName.isBlank()) return
+        viewModelScope.launch {
+            _wrapUpContext.value = _wrapUpContext.value.copy(creatingLead = true)
+            when (val res = repository.createLeadFromCall(call.id, fullName)) {
+                is RepoResult.Success -> {
+                    val updated = callLogDao.getById(call.id)
+                    _wrapUpCallLog.value = updated
+                    _wrapUpContext.value = if (updated != null) buildWrapUpContext(updated) else WrapUpContext()
+                    showPeakEndConfirmation("Lead created in Frappe CRM")
+                }
+                is RepoResult.Error -> {
+                    _wrapUpContext.value = _wrapUpContext.value.copy(creatingLead = false)
+                    _statusMessage.value = res.message
+                }
+            }
+        }
+    }
+
+    /** On return to the app: offer to log a call made in the last 15 minutes that has no wrap-up. */
+    fun checkRecentUnlogged() {
+        if (_wrapUpCallLog.value != null) return
+        viewModelScope.launch {
+            val cutoff = System.currentTimeMillis() - 15 * 60_000L
+            _logPrompt.value = repository.allCallLogsFlow.first()
+                .firstOrNull { it.isUnlogged() && it.timestampMs >= cutoff }
+        }
+    }
+
+    fun dismissLogPrompt() {
+        _logPrompt.value = null
     }
 
     private fun showPeakEndConfirmation(message: String) {
@@ -439,3 +573,26 @@ class PipelineViewModel(
         }
     }
 }
+
+/** The last few distinct numbers dialled or received, newest first, for the dialer's idle state. */
+fun recentDialerNumbers(calls: List<CallLogEntity>, nowMs: Long, limit: Int = 6): List<DialerCrmMatch> =
+    calls.asSequence()
+        .filter { it.normalizedPhone.isNotBlank() }
+        .distinctBy { it.normalizedPhone }
+        .take(limit)
+        .map { call ->
+            val dir = when (call.direction) {
+                CallDirection.INCOMING.name -> "Incoming"
+                CallDirection.MISSED.name -> "Missed"
+                else -> "Outgoing"
+            }
+            DialerCrmMatch(
+                doctype = "Recent",
+                docname = call.normalizedPhone,
+                displayName = call.matchedName?.takeIf { it.isNotBlank() }
+                    ?: PhoneNormalizer.formatDisplay(call.phoneNumber),
+                subtitle = "$dir · " + com.example.util.RelativeTime.format(nowMs, call.timestampMs),
+                phoneNumber = call.phoneNumber
+            )
+        }
+        .toList()

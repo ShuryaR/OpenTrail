@@ -2,7 +2,10 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,9 +45,10 @@ fun DailyMomentumCard(
     unloggedCallsCount: Int,
     syncStage: String?,
     syncConfirmedBanner: String?,
-    onOpenRecents: () -> Unit,
+    onLogUnlogged: () -> Unit,
     onOpenSyncQueue: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val safeGoal = dailyCallGoal.coerceAtLeast(1)
     val progress = (callsTodayCount.toFloat() / safeGoal.toFloat()).coerceIn(0f, 1f)
@@ -85,7 +89,19 @@ fun DailyMomentumCard(
         }
 
         // Goal-Gradient + Labor Illusion + Loss Aversion strip
-        Card(
+        if (compact) {
+            CompactGoalRow(
+                callsTodayCount = callsTodayCount,
+                goal = safeGoal,
+                progress = progress,
+                goalReached = goalReached,
+                pendingSyncCount = pendingSyncCount,
+                unloggedCallsCount = unloggedCallsCount,
+                syncStage = syncStage,
+                onLogUnlogged = onLogUnlogged,
+                onOpenSyncQueue = onOpenSyncQueue
+            )
+        } else Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -147,7 +163,7 @@ fun DailyMomentumCard(
                                 color = MaterialTheme.colorScheme.secondaryContainer,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
-                                    .clickable(onClick = onOpenRecents)
+                                    .clickable(onClickLabel = "Log unlogged calls", onClick = onLogUnlogged)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -161,7 +177,7 @@ fun DailyMomentumCard(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "$unloggedCallsCount unlogged",
+                                        text = "$unloggedCallsCount to log",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
@@ -197,6 +213,93 @@ fun DailyMomentumCard(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+
+/** One-line goal strip for tabs where the list matters more than the pep talk. */
+@Composable
+private fun CompactGoalRow(
+    callsTodayCount: Int,
+    goal: Int,
+    progress: Float,
+    goalReached: Boolean,
+    pendingSyncCount: Int,
+    unloggedCallsCount: Int,
+    syncStage: String?,
+    onLogUnlogged: () -> Unit,
+    onOpenSyncQueue: () -> Unit
+) {
+    val tint = if (goalReached) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("daily_momentum_card_compact")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Filled.TrendingUp, contentDescription = "Daily call goal", tint = tint, modifier = Modifier.size(18.dp))
+            Text(
+                text = if (syncStage.isNullOrBlank()) "$callsTodayCount/$goal" else syncStage,
+                style = MaterialTheme.typography.labelLarge.copy(fontFamily = JetBrainsMono),
+                fontWeight = FontWeight.Bold,
+                color = tint,
+                maxLines = 1
+            )
+            LinearProgressIndicator(
+                progress = { progress },
+                color = tint,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(99.dp))
+            )
+            if (unloggedCallsCount > 0) {
+                // The outer box gives a full 48dp touch target around the smaller visible chip.
+                Box(
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable(onClickLabel = "Log unlogged calls", onClick = onLogUnlogged),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$unloggedCallsCount to log",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            if (pendingSyncCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clickable(onClickLabel = "Open sync queue", onClick = onOpenSyncQueue),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.CloudUpload,
+                        contentDescription = "$pendingSyncCount calls queued",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(6.dp)
+                            .size(18.dp)
+                    )
                 }
             }
         }

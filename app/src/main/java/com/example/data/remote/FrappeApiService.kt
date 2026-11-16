@@ -31,6 +31,7 @@ interface FrappeApiService {
         @Path("doctype") doctype: String,
         @Query("fields") fields: String = "[\"*\"]",
         @Query("limit_page_length") limit: Int = 100,
+        @Query("limit_start") start: Int = 0,
         @Query("order_by") orderBy: String = "modified desc",
         @Query("filters") filters: String? = null
     ): Response<FrappeListEnvelope>

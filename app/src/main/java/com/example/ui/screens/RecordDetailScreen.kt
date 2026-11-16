@@ -302,7 +302,8 @@ fun RecordDetailScreen(
                             callLog = callLog,
                             playbackState = state.playbackState,
                             onTogglePlay = { viewModel.toggleAudioPlayback(callLog) },
-                            onSeek = { viewModel.seekAudio(it) }
+                            onSeek = { viewModel.seekAudio(it) },
+                            onCycleSpeed = { viewModel.cycleAudioSpeed() }
                         )
                     }
                 }
@@ -361,7 +362,8 @@ private fun CallTimelineCard(
     callLog: CallLogEntity,
     playbackState: com.example.service.PlaybackUiState,
     onTogglePlay: () -> Unit,
-    onSeek: (Int) -> Unit
+    onSeek: (Int) -> Unit,
+    onCycleSpeed: () -> Unit = {}
 ) {
     val direction = runCatching { CallDirection.valueOf(callLog.direction) }
         .getOrDefault(CallDirection.OUTGOING)
@@ -428,7 +430,8 @@ private fun CallTimelineCard(
                     fallbackDurationSec = callLog.durationSeconds,
                     playbackState = playbackState,
                     onTogglePlay = onTogglePlay,
-                    onSeek = onSeek
+                    onSeek = onSeek,
+                    onCycleSpeed = onCycleSpeed
                 )
             }
         }

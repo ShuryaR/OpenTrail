@@ -146,7 +146,54 @@ class CallRecorderAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Records about three seconds from the microphone path and reports the loudest level heard, so a
+     * rep can confirm the service, permission and audio source work before a real call. It cannot
+     * hear the other side of a call; that depends on the phone's call routing.
+     */
+    suspend fun runSelfTest(audioSource: AudioSourceOption): SelfTestResult {
+        if (isRecording) return SelfTestResult(false, 0, "A call recording is in progress. Try again after the call.")
+        val file = File(cacheDir, "selftest_${System.currentTimeMillis()}.m4a")
+        val recorder = runCatching {
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder())
+                .apply {
+                    setAudioSource(audioSource.mediaRecorderSource)
+                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    setOutputFile(file.absolutePath)
+                    prepare()
+                    start()
+                }
+        }.getOrElse { e ->
+            file.delete()
+            Log.w(TAG, "Self-test could not start: ${e.message}")
+            return SelfTestResult(false, 0, "Android would not let the recorder start. Check the microphone permission and that no other app is using the mic.")
+        }
+        var peak = 0
+        try {
+            repeat(12) {
+                kotlinx.coroutines.delay(250)
+                peak = maxOf(peak, runCatching { recorder.maxAmplitude }.getOrDefault(0))
+            }
+        } finally {
+            runCatching { recorder.stop() }
+            runCatching { recorder.release() }
+            file.delete()
+        }
+        return when {
+            peak < SILENCE_PEAK -> SelfTestResult(
+                false, peak,
+                "The recorder works but heard almost nothing. Speak near the phone and test again, or switch Audio Capture Source."
+            )
+            else -> SelfTestResult(
+                true, peak,
+                "Recorder works with ${audioSource.name}. During a real call, if the other person is silent, turn off Wi-Fi calling."
+            )
+        }
+    }
+
     companion object {
+        private const val SILENCE_PEAK = 400
         private const val TAG = "OneBookRecorderSvc"
         private const val RECORDER_NOTIFICATION_ID = 4001
 
@@ -189,3 +236,6 @@ class CallRecorderAccessibilityService : AccessibilityService() {
         }
     }
 }
+
+
+data class SelfTestResult(val ok: Boolean, val peakAmplitude: Int, val message: String)

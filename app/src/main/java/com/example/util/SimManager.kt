@@ -16,7 +16,8 @@ data class SimSlotInfo(
     val slotIndex: Int, // 0 = SIM 1, 1 = SIM 2
     val subscriptionId: Int,
     val displayName: String,
-    val carrierName: String
+    val carrierName: String,
+    val number: String = ""
 )
 
 enum class WorkSimPreference(val slotIndex: Int, val label: String) {
@@ -31,6 +32,30 @@ enum class WorkSimPreference(val slotIndex: Int, val label: String) {
 }
 
 object SimManager {
+
+    /** The SIM's own number if the carrier exposes it (many, e.g. Indian carriers, do not). */
+    @SuppressLint("MissingPermission")
+    private fun readOwnNumber(
+        subManager: SubscriptionManager,
+        info: android.telephony.SubscriptionInfo
+    ): String = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            subManager.getPhoneNumber(info.subscriptionId)
+        } else {
+            @Suppress("DEPRECATION")
+            info.number
+        }
+    }.getOrNull().orEmpty().trim()
+
+    /** Placeholder so Frappe's required, phone-validated rep-side field is always valid. */
+    const val UNKNOWN_OWN_NUMBER = "0000000000"
+
+    fun ownNumberFor(context: Context, simSlotIndex: Int): String {
+        val sims = getActiveSims(context)
+        return sims.firstOrNull { it.slotIndex == simSlotIndex }?.number?.takeIf { it.isNotBlank() }
+            ?: sims.firstOrNull { it.number.isNotBlank() }?.number
+            ?: UNKNOWN_OWN_NUMBER
+    }
 
     @SuppressLint("MissingPermission")
     fun getActiveSims(context: Context): List<SimSlotInfo> {
@@ -47,7 +72,8 @@ object SimManager {
                 slotIndex = info.simSlotIndex,
                 subscriptionId = info.subscriptionId,
                 displayName = info.displayName?.toString().orEmpty().ifBlank { "SIM ${info.simSlotIndex + 1}" },
-                carrierName = info.carrierName?.toString().orEmpty().ifBlank { "Cellular" }
+                carrierName = info.carrierName?.toString().orEmpty().ifBlank { "Cellular" },
+                number = readOwnNumber(subManager, info)
             )
         }.sortedBy { it.slotIndex }
     }
