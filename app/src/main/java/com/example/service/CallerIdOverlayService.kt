@@ -142,12 +142,19 @@ class CallerIdOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        val windowFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+        }
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+            windowFlags,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL

@@ -66,7 +66,7 @@ Teams searching for an **open-source alternative to Salestrail** usually hit the
 ## Quick Start
 
 ### 1. Build the APK Locally
-Requires **JDK 17+**, **Android SDK (API 36)**, and **Gradle 9.3.1**.
+Requires **JDK 21**, **Android SDK (API 36)**, and **Gradle 9.3.1**.
 
 ```bash
 # Restore debug keystore (if not present)

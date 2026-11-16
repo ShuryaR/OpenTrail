@@ -5,36 +5,36 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class FrappeMessageResponse(
-    @Json(name = "message") val message: String? = null
+    @param:Json(name = "message") val message: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class FrappeListEnvelope(
-    @Json(name = "data") val data: List<Map<String, Any?>> = emptyList()
+    @param:Json(name = "data") val data: List<Map<String, Any?>> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
 data class FrappeDocEnvelope(
-    @Json(name = "data") val data: Map<String, Any?> = emptyMap()
+    @param:Json(name = "data") val data: Map<String, Any?> = emptyMap()
 )
 
 @JsonClass(generateAdapter = true)
 data class FrappeUploadEnvelope(
-    @Json(name = "message") val message: FrappeUploadedFile? = null
+    @param:Json(name = "message") val message: FrappeUploadedFile? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class FrappeUploadedFile(
-    @Json(name = "name") val name: String? = null,
-    @Json(name = "file_name") val fileName: String? = null,
-    @Json(name = "file_url") val fileUrl: String? = null,
-    @Json(name = "is_private") val isPrivate: Int? = null
+    @param:Json(name = "name") val name: String? = null,
+    @param:Json(name = "file_name") val fileName: String? = null,
+    @param:Json(name = "file_url") val fileUrl: String? = null,
+    @param:Json(name = "is_private") val isPrivate: Int? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class FrappeLoginRequest(
-    @Json(name = "usr") val usr: String,
-    @Json(name = "pwd") val pwd: String
+    @param:Json(name = "usr") val usr: String,
+    @param:Json(name = "pwd") val pwd: String
 )
 
 fun Map<String, Any?>.str(vararg keys: String): String {
