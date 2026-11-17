@@ -308,9 +308,19 @@ class CrmRepository(
 
             _syncStage.value = "Syncing Tasks & Call Logs…"
             // 5. Recent CRM Call Logs
-            val callResp = service.listResources("CRM Call Log", orderBy = "creation desc")
-            if (callResp.isSuccessful) {
-                val remoteLogs = callResp.body()?.data.orEmpty().mapNotNull { row ->
+            // Only the signed-in rep's own calls. The CRM lets every Sales User read every call log, so an
+            // unfiltered list would show (and count) colleagues' calls as this rep's.
+            val me = session.loggedInUser.trim()
+            val since = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                .format(Date(System.currentTimeMillis() - CALL_HISTORY_DAYS * 86_400_000L))
+            val asCaller = if (me.isBlank()) null else
+                listAllPaged(service, "CRM Call Log", orderBy = "creation desc", filters = ownCallLogFilters("caller", me, since))
+            val asReceiver = if (me.isBlank()) null else
+                listAllPaged(service, "CRM Call Log", orderBy = "creation desc", filters = ownCallLogFilters("receiver", me, since))
+            // If either fetch failed, keep the cache as it is rather than wiping it.
+            if (asCaller != null && asReceiver != null) {
+                val ownRows = (asCaller + asReceiver).distinctBy { it.str("name") }
+                val remoteLogs = ownRows.mapNotNull { row ->
                     val docName = row.str("name")
                     if (docName.isBlank()) return@mapNotNull null
                     val type = row.str("type")
@@ -363,13 +373,14 @@ class CrmRepository(
         doctype: String,
         orderBy: String = "modified desc",
         fallbackDoctype: String? = null,
-        fallbackOrderBy: String = "modified desc"
+        fallbackOrderBy: String = "modified desc",
+        filters: String? = null
     ): List<Map<String, Any?>>? {
         suspend fun fetch(dt: String, order: String): List<Map<String, Any?>>? {
             val all = mutableListOf<Map<String, Any?>>()
             var start = 0
             while (all.size < MAX_SYNC_ROWS) {
-                val resp = service.listResources(dt, limit = PAGE_SIZE, start = start, orderBy = order)
+                val resp = service.listResources(dt, limit = PAGE_SIZE, start = start, orderBy = order, filters = filters)
                 if (!resp.isSuccessful) return if (start == 0) null else all
                 val page = resp.body()?.data.orEmpty()
                 all += page
@@ -957,6 +968,16 @@ class CrmRepository(
     companion object {
         private const val PAGE_SIZE = 500
         private const val MAX_SYNC_ROWS = 5000
+        private const val CALL_HISTORY_DAYS = 30L
+
+        /**
+         * Frappe `filters` JSON for one rep's calls on one side of the call ("caller" or "receiver")
+         * since [sinceDate] (yyyy-MM-dd). [user] is a Frappe user id, usually an email.
+         */
+        internal fun ownCallLogFilters(field: String, user: String, sinceDate: String): String {
+            fun esc(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"")
+            return "[[\"${esc(field)}\",\"=\",\"${esc(user)}\"],[\"creation\",\">=\",\"${esc(sinceDate)}\"]]"
+        }
 
         /**
          * Builds the minimal CRM Call Log payload. `from`/`to` are both required and phone-validated
