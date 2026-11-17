@@ -333,10 +333,12 @@ class CrmRepository(
                         frappeDocName = docName,
                         phoneNumber = num,
                         normalizedPhone = PhoneNormalizer.normalize(num),
-                        direction = if (type.equals("Incoming", true)) {
-                            CallDirection.INCOMING.name
-                        } else {
-                            CallDirection.OUTGOING.name
+                        direction = when {
+                            // An incoming call nobody answered is a missed call, not a normal incoming one.
+                            type.equals("Incoming", true) && row.str("status").equals("No Answer", true) ->
+                                CallDirection.MISSED.name
+                            type.equals("Incoming", true) -> CallDirection.INCOMING.name
+                            else -> CallDirection.OUTGOING.name
                         },
                         durationSeconds = row.integer("duration"),
                         timestampMs = parseFrappeDate(row.str("creation", "start_time")),
@@ -980,6 +982,17 @@ class CrmRepository(
         }
 
         /**
+         * "No Answer" for a missed call and for an outgoing call that never connected (0 seconds),
+         * otherwise "Completed". Frappe's other statuses (Busy, Failed) cannot be told apart from
+         * the phone's call history.
+         */
+        internal fun callLogStatus(direction: CallDirection, durationSeconds: Int): String = when {
+            direction == CallDirection.MISSED -> "No Answer"
+            direction == CallDirection.OUTGOING && durationSeconds <= 0 -> "No Answer"
+            else -> "Completed"
+        }
+
+        /**
          * Builds the minimal CRM Call Log payload. `from`/`to` are both required and phone-validated
          * by Frappe: the customer number on one side, the rep's SIM number (or placeholder) on the other.
          */
@@ -993,18 +1006,21 @@ class CrmRepository(
             endTime: String,
             recordingUrl: String?
         ): Map<String, Any?> = buildMap {
+            // Both ends are written as +<country code><number>, whatever format Android or the CRM used.
+            val customer = PhoneNormalizer.toDialable(customerNumber).ifBlank { customerNumber }
+            val rep = PhoneNormalizer.toDialable(repNumber).ifBlank { repNumber }
             put("id", callUniqueId)
             put("type", direction.frappeType)
-            put("status", if (direction == CallDirection.MISSED) "No Answer" else "Completed")
+            put("status", callLogStatus(direction, durationSeconds))
             put("duration", durationSeconds)
             put("start_time", startTime)
             put("end_time", endTime)
             if (direction == CallDirection.OUTGOING) {
-                put("from", repNumber)
-                put("to", customerNumber)
+                put("from", rep)
+                put("to", customer)
             } else {
-                put("from", customerNumber)
-                put("to", repNumber)
+                put("from", customer)
+                put("to", rep)
             }
             if (!recordingUrl.isNullOrBlank()) put("recording_url", recordingUrl)
         }

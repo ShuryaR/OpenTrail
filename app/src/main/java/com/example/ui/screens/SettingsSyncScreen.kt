@@ -208,13 +208,13 @@ fun SettingsSyncScreen(
 
                 // Daily Call Goal Selector (Goal-Gradient Effect)
                 item {
-                    SectionCard(title = "Daily Call Goal") {
+                    SectionCard(title = "Daily Conversation Goal") {
                         Text(
-                            text = "Set your daily SIM call target shown on the Recents momentum bar.",
+                            text = "How many conversations you aim for each day. A conversation is a call that was answered and lasted 10 seconds or more, or one you mark Connected. Missed and unanswered calls do not count.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        val goalOptions = listOf(10, 20, 25, 40, 50)
+                        val goalOptions = listOf(10, 25, 50, 75, 100)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -223,7 +223,7 @@ fun SettingsSyncScreen(
                                 FilterChip(
                                     selected = state.settings.dailyCallGoal == target,
                                     onClick = { viewModel.setDailyCallGoal(target) },
-                                    label = { Text("$target calls") },
+                                    label = { Text("$target") },
                                     modifier = Modifier.testTag("daily_goal_chip_$target")
                                 )
                             }

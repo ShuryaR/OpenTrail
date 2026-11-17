@@ -152,3 +152,16 @@ fun CallLogEntity.isUnlogged(nowMs: Long = System.currentTimeMillis()): Boolean 
         disposition.isNullOrBlank() &&
         (frappeDocName.isBlank() || frappeDocName.startsWith("onebook-")) &&
         nowMs - timestampMs <= UNLOGGED_WINDOW_MS
+
+
+/** Seconds of talk time before an answered call counts as a conversation (not a ring-through or IVR). */
+const val MIN_CONVERSATION_SECONDS = 10
+
+/**
+ * A call where someone actually answered and talked, which is what the daily goal counts. Missed
+ * calls, calls nobody picked up and instant hang-ups do not count. A rep marking the call
+ * "Connected" in the wrap-up also counts it, for short but real conversations.
+ */
+fun CallLogEntity.isConversation(): Boolean =
+    direction != CallDirection.MISSED.name &&
+        (durationSeconds >= MIN_CONVERSATION_SECONDS || disposition.equals("Connected", ignoreCase = true))

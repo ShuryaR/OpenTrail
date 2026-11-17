@@ -85,6 +85,9 @@ data class AuthSession(
             )
 }
 
+/** Conversations a rep aims for each day. */
+const val DEFAULT_DAILY_GOAL = 50
+
 data class AppSettings(
     val audioSource: AudioSourceOption = AudioSourceOption.VOICE_RECOGNITION,
     val oemWatcherEnabled: Boolean = false,
@@ -93,7 +96,7 @@ data class AppSettings(
     val onboardingCompleted: Boolean = false,
     val vowifiTipDismissed: Boolean = false,
     val lastSyncEpochMs: Long = 0L,
-    val dailyCallGoal: Int = 20
+    val dailyCallGoal: Int = DEFAULT_DAILY_GOAL
 )
 
 /**
@@ -147,7 +150,7 @@ class SecureCredentialStore(private val context: Context) {
             onboardingCompleted = prefs[KEY_ONBOARDING_DONE] ?: false,
             vowifiTipDismissed = prefs[KEY_VOWIFI_DISMISSED] ?: false,
             lastSyncEpochMs = prefs[KEY_LAST_SYNC_MS] ?: 0L,
-            dailyCallGoal = (prefs[KEY_DAILY_CALL_GOAL] ?: 20).coerceIn(5, 200)
+            dailyCallGoal = (prefs[KEY_DAILY_CALL_GOAL] ?: DEFAULT_DAILY_GOAL).coerceIn(5, 200)
         )
     }
 

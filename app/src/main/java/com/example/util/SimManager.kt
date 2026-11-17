@@ -89,7 +89,8 @@ object SimManager {
         phoneNumber: String,
         preferredSimSlot: WorkSimPreference = WorkSimPreference.ANY
     ): Boolean {
-        val cleaned = phoneNumber.trim()
+        // CRM numbers are often stored as 91XXXXXXXXXX, which the dialer treats as a local number.
+        val cleaned = PhoneNormalizer.toDialable(phoneNumber)
         if (cleaned.isBlank()) return false
 
         val hasCallPermission = ContextCompat.checkSelfPermission(

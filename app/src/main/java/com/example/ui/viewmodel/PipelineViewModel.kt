@@ -11,6 +11,7 @@ import com.example.data.local.CallLogEntity
 import com.example.data.local.ContactEntity
 import com.example.data.local.DealEntity
 import com.example.data.local.LeadEntity
+import com.example.data.local.isConversation
 import com.example.data.local.isUnlogged
 import com.example.data.local.TaskEntity
 import com.example.data.repository.CrmRepository
@@ -148,7 +149,8 @@ class PipelineViewModel(
         val q = filters.query.trim().lowercase()
 
         val startOfDayMs = startOfTodayMillis()
-        val callsTodayCount = data.calls.count { it.timestampMs >= startOfDayMs }
+        // The goal counts conversations (answered, talked), not every logged call.
+        val callsTodayCount = data.calls.count { it.timestampMs >= startOfDayMs && it.isConversation() }
         val unloggedCount = data.calls.count { it.isUnlogged() }
 
         val filteredCalls = if (q.isBlank()) data.calls else data.calls.filter {

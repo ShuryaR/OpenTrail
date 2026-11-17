@@ -34,6 +34,33 @@ object PhoneNormalizer {
         return if (trimmed.length > 10) trimmed.takeLast(10) else trimmed
     }
 
+    /** Country code assumed for numbers that carry none. The app is used by an Indian sales team. */
+    private const val DEFAULT_COUNTRY_CODE = "91"
+
+    /**
+     * The form to hand to the phone's dialer, and to store in the CRM: `+<country code><number>`.
+     *
+     * CRM records hold numbers as `917904183832`, `07904183832`, `7904183832` or `+917904183832`.
+     * Android's dialer only understands the last two, so a bare `91…` would be dialled as a local
+     * number and fail. USSD/short codes (`*`, `#`) and numbers that already have a `+` or `00` are kept.
+     */
+    fun toDialable(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        val trimmed = raw.trim()
+        if (trimmed.any { it == '*' || it == '#' }) return trimmed.filter { it.isDigit() || it == '*' || it == '#' || it == '+' }
+        val digits = trimmed.filter { it.isDigit() }
+        if (digits.isEmpty()) return ""
+        return when {
+            trimmed.startsWith("+") -> "+$digits"
+            // 00 is the international exit code, but only for a real long number: "0000000000" is not one.
+            digits.startsWith("00") && digits.length >= 11 && digits[2] != '0' -> "+${digits.drop(2)}"
+            digits.length == 12 && digits.startsWith(DEFAULT_COUNTRY_CODE) -> "+$digits"
+            digits.length == 11 && digits.startsWith("0") -> "+$DEFAULT_COUNTRY_CODE${digits.drop(1)}"
+            digits.length == 10 && digits.first() in '6'..'9' -> "+$DEFAULT_COUNTRY_CODE$digits"
+            else -> digits
+        }
+    }
+
     /**
      * Formats phone numbers into readable chunks (Miller's Law) while tolerating any input (Postel's Law).
      */

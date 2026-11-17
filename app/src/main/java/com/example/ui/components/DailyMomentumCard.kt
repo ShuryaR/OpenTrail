@@ -129,13 +129,13 @@ fun DailyMomentumCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (syncStage.isNullOrBlank()) "Daily Call Goal" else syncStage,
+                            text = if (syncStage.isNullOrBlank()) "Daily Conversations" else syncStage,
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Text(
-                        text = "$callsTodayCount / $safeGoal calls",
+                        text = "$callsTodayCount / $safeGoal",
                         style = MaterialTheme.typography.labelLarge.copy(fontFamily = JetBrainsMono),
                         fontWeight = FontWeight.Bold,
                         color = if (goalReached) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary

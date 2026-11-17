@@ -22,12 +22,12 @@ class CallLogPayloadTest {
     @Test fun outgoingHasRepFromAndCustomerTo() {
         val p = payload(CallDirection.OUTGOING)
         assertEquals("0000000000", p["from"])
-        assertEquals("+91 98410 28966", p["to"])
+        assertEquals("+919841028966", p["to"])
     }
 
     @Test fun incomingHasCustomerFromAndRepTo() {
         val p = payload(CallDirection.INCOMING)
-        assertEquals("+91 98410 28966", p["from"])
+        assertEquals("+919841028966", p["from"])
         assertEquals("0000000000", p["to"])
     }
 
@@ -41,5 +41,29 @@ class CallLogPayloadTest {
 
     @Test fun missedCallIsNoAnswer() {
         assertEquals("No Answer", payload(CallDirection.MISSED)["status"])
+    }
+
+    @Test fun writesBothNumbersInPlus91FormatWhateverTheSource() {
+        val p = CrmRepository.buildCallLogBasePayload(
+            callUniqueId = "x", direction = CallDirection.OUTGOING,
+            customerNumber = "919841028966", repNumber = "917904183832",
+            durationSeconds = 5, startTime = "s", endTime = "e", recordingUrl = null
+        )
+        assertEquals("+917904183832", p["from"])
+        assertEquals("+919841028966", p["to"])
+    }
+
+    @Test fun unansweredOutgoingCallIsNoAnswer() {
+        assertEquals("No Answer", CrmRepository.callLogStatus(CallDirection.OUTGOING, 0))
+        assertEquals("Completed", CrmRepository.callLogStatus(CallDirection.OUTGOING, 12))
+    }
+
+    @Test fun missedIsNoAnswerAndAnsweredIncomingIsCompleted() {
+        assertEquals("No Answer", CrmRepository.callLogStatus(CallDirection.MISSED, 0))
+        assertEquals("Completed", CrmRepository.callLogStatus(CallDirection.INCOMING, 45))
+    }
+
+    @Test fun missedCallIsAnIncomingTypeInTheCrm() {
+        assertEquals("Incoming", payload(CallDirection.MISSED)["type"])
     }
 }
