@@ -159,6 +159,10 @@ fun HomeScreen(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useRail = maxWidth >= 600.dp
+        val dimens = com.example.ui.theme.resolveDimens(
+            state.settings.layoutDensity, maxHeight.value, androidx.compose.ui.platform.LocalDensity.current.fontScale
+        )
+        androidx.compose.runtime.CompositionLocalProvider(com.example.ui.theme.LocalDimens provides dimens) {
 
         Scaffold(
             contentWindowInsets = WindowInsets.navigationBars,
@@ -166,62 +170,17 @@ fun HomeScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
               Column {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
+                com.example.ui.components.CompactTopBar(
+                    recorderHealthy = health.recorderHealthy,
+                    syncStage = state.syncStage,
+                    lastSyncText = com.example.util.RelativeTime.format(
+                        System.currentTimeMillis(), state.settings.lastSyncEpochMs
                     ),
-                    title = {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "OneBook Dialer",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = state.syncStage ?: "${state.selectedTab.label} · synced " +
-                                    com.example.util.RelativeTime.format(
-                                        System.currentTimeMillis(),
-                                        state.settings.lastSyncEpochMs
-                                    ),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (state.syncStage != null) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = { viewModel.refreshPipeline() },
-                            enabled = !state.isRefreshing,
-                            modifier = Modifier.testTag("home_refresh_button")
-                        ) {
-                            if (state.isRefreshing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Sync Frappe pipeline")
-                            }
-                        }
-                        IconButton(
-                            onClick = onOpenSettingsSync,
-                            modifier = Modifier.testTag("home_settings_button")
-                        ) {
-                            BadgedBox(
-                                badge = {
-                                    if (state.pendingSyncCount > 0) {
-                                        Badge { Text("${state.pendingSyncCount}") }
-                                    }
-                                }
-                            ) {
-                                Icon(Icons.Filled.Settings, contentDescription = "Sync queue & settings")
-                            }
-                        }
-                    }
+                    pendingSyncCount = state.pendingSyncCount,
+                    isRefreshing = state.isRefreshing,
+                    onHealthClick = onOpenWizard,
+                    onRefresh = { viewModel.refreshPipeline() },
+                    onOpenSettings = onOpenSettingsSync
                 )
                 Box(modifier = Modifier.fillMaxWidth().height(3.dp)) {
                     if (state.isRefreshing || state.syncStage != null) {
@@ -248,11 +207,11 @@ fun HomeScreen(
                         enter = androidx.compose.animation.scaleIn() + androidx.compose.animation.fadeIn(),
                         exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut()
                     ) {
-                        FloatingActionButton(
+                        androidx.compose.material3.SmallFloatingActionButton(
                             onClick = { showDialerSheet = true },
                             containerColor = SignalGreen,
                             contentColor = Color.White,
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.testTag("home_dialer_fab")
                         ) {
                             Icon(
@@ -267,7 +226,8 @@ fun HomeScreen(
                 if (!useRail) {
                     NavigationBar(
                         windowInsets = WindowInsets.navigationBars,
-                        containerColor = MaterialTheme.colorScheme.surface
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.height(if (dimens.compact) 64.dp else 76.dp)
                     ) {
                         HomeTab.entries.forEach { tab ->
                             val selected = state.selectedTab == tab
@@ -334,14 +294,24 @@ fun HomeScreen(
                             .fillMaxSize()
                             .nestedScroll(fabScrollConnection)
                             .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(dimens.listGap)
                     ) {
-                        HealthStatusBanner(
-                            isHealthy = health.recorderHealthy,
-                            pendingSyncCount = state.pendingSyncCount,
-                            onClick = onOpenWizard
-                        )
+                        // The top bar's dot shows health; the full banner only appears when it needs fixing.
+                        if (!health.recorderHealthy) {
+                            HealthStatusBanner(
+                                isHealthy = false,
+                                pendingSyncCount = state.pendingSyncCount,
+                                onClick = onOpenWizard
+                            )
+                        }
 
+                        // Goal strip and search slide away while scrolling down a list and return on scroll up.
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = fabVisible || state.searchQuery.isNotBlank(),
+                            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(dimens.listGap)) {
                         DailyMomentumCard(
                             callsTodayCount = state.callsTodayCount,
                             dailyCallGoal = state.settings.dailyCallGoal,
@@ -351,24 +321,15 @@ fun HomeScreen(
                             syncConfirmedBanner = state.syncConfirmedBanner,
                             onLogUnlogged = { viewModel.startBacklog() },
                             onOpenSyncQueue = onOpenSettingsSync,
-                            compact = state.selectedTab != HomeTab.RECENTS
+                            compact = true
                         )
 
-                        OutlinedTextField(
-                            value = state.searchQuery,
-                            onValueChange = { viewModel.updateSearchQuery(it) },
-                            placeholder = { Text("Search name, company, or number...") },
-                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("pipeline_search_input")
+                        com.example.ui.components.CompactSearchField(
+                            query = state.searchQuery,
+                            onQueryChange = { viewModel.updateSearchQuery(it) }
                         )
+                        }
+                        }
 
                         val tabEmpty = when (state.selectedTab) {
                             HomeTab.RECENTS -> state.recentCalls.isEmpty()
@@ -447,6 +408,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 

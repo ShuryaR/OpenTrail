@@ -99,6 +99,7 @@ const val DEFAULT_DAILY_GOAL = 50
 data class AppSettings(
     val audioSource: AudioSourceOption = AudioSourceOption.VOICE_RECOGNITION,
     val oemWatcherEnabled: Boolean = false,
+    val layoutDensity: com.example.ui.theme.LayoutDensity = com.example.ui.theme.LayoutDensity.AUTO,
     val privacyFilterMode: PrivacyFilterMode = PrivacyFilterMode.ALL_CALLS,
     val workSimPreference: WorkSimPreference = WorkSimPreference.ANY,
     val onboardingCompleted: Boolean = false,
@@ -128,6 +129,7 @@ class SecureCredentialStore(private val context: Context) {
         private val KEY_AUTH_MODE = stringPreferencesKey("auth_mode")
         private val KEY_AUDIO_SOURCE = stringPreferencesKey("audio_source")
         private val KEY_OEM_WATCHER = booleanPreferencesKey("oem_watcher")
+        private val KEY_LAYOUT_DENSITY = stringPreferencesKey("layout_density")
         private val KEY_PRIVACY_FILTER = stringPreferencesKey("privacy_filter")
         private val KEY_WORK_SIM_SLOT = intPreferencesKey("work_sim_slot")
         private val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
@@ -153,6 +155,7 @@ class SecureCredentialStore(private val context: Context) {
         AppSettings(
             audioSource = AudioSourceOption.fromName(prefs[KEY_AUDIO_SOURCE]),
             oemWatcherEnabled = prefs[KEY_OEM_WATCHER] ?: oemRecorderDefault(android.os.Build.MANUFACTURER),
+            layoutDensity = com.example.ui.theme.LayoutDensity.fromName(prefs[KEY_LAYOUT_DENSITY]),
             privacyFilterMode = PrivacyFilterMode.fromName(prefs[KEY_PRIVACY_FILTER]),
             workSimPreference = WorkSimPreference.fromSlot(prefs[KEY_WORK_SIM_SLOT] ?: -1),
             onboardingCompleted = prefs[KEY_ONBOARDING_DONE] ?: false,
@@ -217,6 +220,10 @@ class SecureCredentialStore(private val context: Context) {
 
     suspend fun setAudioSource(option: AudioSourceOption) {
         context.oneBookDataStore.edit { it[KEY_AUDIO_SOURCE] = option.name }
+    }
+
+    suspend fun setLayoutDensity(density: com.example.ui.theme.LayoutDensity) {
+        context.oneBookDataStore.edit { it[KEY_LAYOUT_DENSITY] = density.name }
     }
 
     suspend fun setOemWatcherEnabled(enabled: Boolean) {

@@ -94,6 +94,10 @@ class SettingsSyncViewModel(
         viewModelScope.launch { repository.credentialStore.setAudioSource(option) }
     }
 
+    fun setLayoutDensity(density: com.example.ui.theme.LayoutDensity) {
+        viewModelScope.launch { repository.credentialStore.setLayoutDensity(density) }
+    }
+
     fun setOemWatcherEnabled(enabled: Boolean) {
         viewModelScope.launch { repository.credentialStore.setOemWatcherEnabled(enabled) }
     }

@@ -58,6 +58,7 @@ import com.example.data.local.DealEntity
 import com.example.data.local.LeadEntity
 import com.example.data.local.TaskEntity
 import com.example.ui.theme.JetBrainsMono
+import com.example.ui.theme.LocalDimens
 import com.example.ui.theme.SignalGreen
 import com.example.util.PhoneNormalizer
 
@@ -110,8 +111,8 @@ fun TasksTabContent(
     val groups = remember(tasks, todayIso) { bucketTasks(tasks, todayIso) }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = 72.dp),
+        verticalArrangement = Arrangement.spacedBy(LocalDimens.current.listGap)
     ) {
         groups.forEach { (bucket, bucketTasks) ->
             item(key = "header_${bucket.name}") {
@@ -204,7 +205,7 @@ private fun TaskCard(
             }
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(LocalDimens.current.cardPad),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
@@ -220,7 +221,7 @@ private fun TaskCard(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(LocalDimens.current.cardGap)) {
                 Text(
                     text = task.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -282,7 +283,7 @@ fun LeadsTabContent(
     Column(modifier = Modifier.fillMaxSize()) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 12.dp)
+            modifier = Modifier.padding(bottom = 4.dp)
         ) {
             items(statuses) { status ->
                 FilterChip(
@@ -306,8 +307,8 @@ fun LeadsTabContent(
         }
 
         LazyColumn(
-            contentPadding = PaddingValues(bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(bottom = 72.dp),
+            verticalArrangement = Arrangement.spacedBy(LocalDimens.current.listGap)
         ) {
             items(leads, key = { it.name }) { lead ->
                 val callableNumber = lead.mobileNo.ifBlank { lead.phone }
@@ -323,12 +324,12 @@ fun LeadsTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(LocalDimens.current.cardPad),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(LocalDimens.current.cardGap)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -344,47 +345,37 @@ fun LeadsTabContent(
                                 StatusPill(label = lead.status)
                             }
                             if (lead.organization.isNotBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Business,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = lead.organization,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                            if (callableNumber.isNotBlank()) {
                                 Text(
-                                    text = PhoneNormalizer.formatDisplay(callableNumber),
-                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            insights[lead.name]?.let { line ->
-                                Text(
-                                    text = line,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (lead.lastNote.isNotBlank()) {
-                                Text(
-                                    text = lead.lastNote,
+                                    text = lead.organization,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+                            // Number and the last-call / next-task hint share one line.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (callableNumber.isNotBlank()) {
+                                    Text(
+                                        text = PhoneNormalizer.formatDisplay(callableNumber),
+                                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMono),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1
+                                    )
+                                }
+                                insights[lead.name]?.let { line ->
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
                         }
 
@@ -429,8 +420,8 @@ fun DealsTabContent(
     val grouped = remember(deals) { deals.groupBy { it.dealStage.ifBlank { "Qualification" } } }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = 72.dp),
+        verticalArrangement = Arrangement.spacedBy(LocalDimens.current.listGap)
     ) {
         grouped.forEach { (stage, stageDeals) ->
             item(key = "header_$stage") {
@@ -468,12 +459,12 @@ fun DealsTabContent(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(LocalDimens.current.cardPad),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                            verticalArrangement = Arrangement.spacedBy(LocalDimens.current.cardGap)
                         ) {
                             Text(
                                 text = deal.dealTitle,
@@ -553,8 +544,8 @@ fun ContactsTabContent(
     }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = 72.dp),
+        verticalArrangement = Arrangement.spacedBy(LocalDimens.current.listGap)
     ) {
         items(contacts, key = { it.name }) { contact ->
             val callable = contact.mobileNo.ifBlank { contact.phone }
@@ -570,7 +561,7 @@ fun ContactsTabContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(LocalDimens.current.cardPad),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
@@ -589,7 +580,7 @@ fun ContactsTabContent(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(LocalDimens.current.cardGap)
                     ) {
                         Text(
                             text = contact.fullName,

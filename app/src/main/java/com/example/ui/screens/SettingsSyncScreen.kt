@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -403,6 +404,35 @@ fun SettingsSyncScreen(
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Remove excluded number")
+                            }
+                        }
+                    }
+                }
+
+                item { SettingsSectionHeader("Display", "How much fits on each screen.") }
+
+                item {
+                    SectionCard(title = "Layout density") {
+                        com.example.ui.theme.LayoutDensity.entries.forEach { option ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clickable { viewModel.setLayoutDensity(option) },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.RadioButton(
+                                    selected = state.settings.layoutDensity == option,
+                                    onClick = { viewModel.setLayoutDensity(option) }
+                                )
+                                Column(modifier = Modifier.padding(start = 8.dp, top = 4.dp, bottom = 4.dp)) {
+                                    Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        option.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }

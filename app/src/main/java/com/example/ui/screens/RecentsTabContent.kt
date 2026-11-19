@@ -37,6 +37,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,8 +137,8 @@ fun RecentsTabContent(
     }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(bottom = 72.dp),
+        verticalArrangement = Arrangement.spacedBy(com.example.ui.theme.LocalDimens.current.listGap)
     ) {
         groupedCalls.forEach { (dayLabel, dayCalls) ->
             item(key = "day_$dayLabel") {
@@ -225,20 +229,27 @@ private fun RecentCallCard(
             .testTag("recent_call_card_${callLog.id}")
             .clickable(onClick = onCardClick)
     ) {
+        val dimens = com.example.ui.theme.LocalDimens.current
+        val hasAudio = !callLog.localAudioPath.isNullOrBlank() || !callLog.remoteAudioUrl.isNullOrBlank()
+        val audioKey = "recent_${callLog.id}_${callLog.frappeDocName}"
+        // The player is 90+ dp tall, so it stays hidden until the rep asks for it or it is playing.
+        var showPlayer by remember(callLog.id) { mutableStateOf(false) }
+        val playerVisible = hasAudio && (showPlayer || playbackState.activeKey == audioKey)
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(dimens.cardPad),
+            verticalArrangement = Arrangement.spacedBy(dimens.cardGap * 2)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = dirBg,
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -255,7 +266,7 @@ private fun RecentCallCard(
                 // Miller's Law chunked 3-line summary
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(dimens.cardGap)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -300,15 +311,47 @@ private fun RecentCallCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    // Chips wrap onto a second line instead of squeezing, which matters with large text.
+                    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                    androidx.compose.foundation.layout.FlowRow(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.padding(top = 2.dp)
                     ) {
                         SyncStatePill(
                             status = syncStatus,
                             onRetry = onRetrySync
                         )
+
+                        if (hasAudio && !playerVisible) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClickLabel = "Play recording") {
+                                        showPlayer = true
+                                        onToggleAudio()
+                                    }
+                                    .testTag("recent_play_chip_${callLog.id}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.PlayArrow,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = PhoneNormalizer.formatDuration(callLog.durationSeconds),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        }
 
                         // Zeigarnik Effect: Surface unfinished call notes cleanly
                         if (needsWrapUp) {
@@ -334,7 +377,9 @@ private fun RecentCallCard(
                                     Text(
                                         text = "Add note",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -370,10 +415,9 @@ private fun RecentCallCard(
                 )
             }
 
-            val hasAudio = !callLog.localAudioPath.isNullOrBlank() || !callLog.remoteAudioUrl.isNullOrBlank()
-            if (hasAudio) {
+            if (playerVisible) {
                 InlineAudioPlayer(
-                    itemKey = "recent_${callLog.id}_${callLog.frappeDocName}",
+                    itemKey = audioKey,
                     fallbackDurationSec = callLog.durationSeconds,
                     playbackState = playbackState,
                     onTogglePlay = onToggleAudio,
