@@ -26,7 +26,6 @@
     <!-- Read the phone's own call recordings (Samsung/Xiaomi/OPPO recorders) on Android 11+.
          Sideloaded app, so no store review applies. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <!-- Caller ID Overlay & Battery Exemption -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
