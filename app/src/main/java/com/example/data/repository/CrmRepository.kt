@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -660,12 +661,21 @@ class CrmRepository(
         return session to service
     }
 
+    private val queueLock = kotlinx.coroutines.sync.Mutex()
+
     suspend fun syncPendingQueueOnce(): Boolean = withContext(Dispatchers.IO) {
+        // One upload pass at a time: a second caller waits, then finds the queue already done.
+        queueLock.withLock { syncPendingQueueLocked() }
+    }
+
+    private suspend fun syncPendingQueueLocked(): Boolean {
+        // Under the lock nothing is really mid-upload, so any SYNCING row is left over from a crash.
+        callLogDao.resetStuckSyncing()
         val initialSession = credentialStore.getAuthSession()
-        if (!initialSession.isAuthenticated) return@withContext false
+        if (!initialSession.isAuthenticated) return false
         val (session, service) = ensureCsrfService(initialSession)
         val queue = callLogDao.getUploadQueue()
-        if (queue.isEmpty()) return@withContext true
+        if (queue.isEmpty()) return true
 
         var allSucceeded = true
         for (item in queue) {
@@ -683,7 +693,7 @@ class CrmRepository(
             }
         }
         _syncStage.value = null
-        allSucceeded
+        return allSucceeded
     }
 
     private suspend fun uploadSingleCallLog(

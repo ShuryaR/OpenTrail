@@ -107,6 +107,10 @@ interface CallLogDao {
     @Query("SELECT * FROM call_logs WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CallLogEntity?
 
+    /** Calls left mid-upload (app killed, phone restarted) go back in the queue. */
+    @Query("UPDATE call_logs SET syncStatus = 'PENDING' WHERE syncStatus = 'SYNCING'")
+    suspend fun resetStuckSyncing()
+
     @Query("SELECT * FROM call_logs WHERE syncStatus IN ('PENDING', 'FAILED') ORDER BY timestampMs ASC")
     suspend fun getUploadQueue(): List<CallLogEntity>
 
