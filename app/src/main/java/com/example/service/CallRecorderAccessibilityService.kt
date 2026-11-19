@@ -205,7 +205,7 @@ class CallRecorderAccessibilityService : AccessibilityService() {
          * Fallback OEM Recording Folder Watcher for Samsung One UI, Xiaomi HyperOS, OnePlus,
          * and Oppo dialers that store native call recordings on internal storage.
          */
-        fun findRecentOemRecording(context: Context, callEndedMs: Long): String? {
+        fun findRecentOemRecording(context: Context, callStartMs: Long, callEndedMs: Long): String? {
             val root = Environment.getExternalStorageDirectory() ?: return null
             val candidateDirs = listOf(
                 File(root, "Recordings/Call"),
@@ -215,17 +215,12 @@ class CallRecorderAccessibilityService : AccessibilityService() {
                 File(root, "Sounds/CallRecordings"),
                 File(root, "Music/Recordings/Call Recordings")
             )
-            val windowStart = callEndedMs - 120_000L
-            val newest = candidateDirs
+            val files = candidateDirs
                 .filter { it.exists() && it.isDirectory }
                 .flatMap { dir -> dir.listFiles()?.toList().orEmpty() }
-                .filter { file ->
-                    file.isFile &&
-                        file.length() > 2048L &&
-                        file.lastModified() >= windowStart &&
-                        file.extension.lowercase() in setOf("m4a", "amr", "mp3", "wav", "aac", "ogg")
-                }
-                .maxByOrNull { it.lastModified() } ?: return null
+                .filter { it.isFile }
+                .map { OemFile(it.name, it.length(), it.lastModified(), it) }
+            val newest = OemRecordingPicker.pick(files, callStartMs, callEndedMs)?.file ?: return null
 
             val destDir = File(context.filesDir, "recordings").apply { mkdirs() }
             val destFile = File(destDir, "oem_${System.currentTimeMillis()}.${newest.extension}")
@@ -239,3 +234,22 @@ class CallRecorderAccessibilityService : AccessibilityService() {
 
 
 data class SelfTestResult(val ok: Boolean, val peakAmplitude: Int, val message: String)
+
+
+data class OemFile(val name: String, val sizeBytes: Long, val modifiedMs: Long, val file: File)
+
+object OemRecordingPicker {
+    private val AUDIO = setOf("m4a", "amr", "mp3", "wav", "aac", "ogg")
+
+    /**
+     * The phone's recorder closes its file when the call ends, so the right file was last modified
+     * between the start and shortly after the end of the call. Newest such file wins.
+     */
+    fun pick(files: List<OemFile>, callStartMs: Long, callEndedMs: Long): OemFile? =
+        files.filter {
+            it.sizeBytes > 2048L &&
+                it.name.substringAfterLast('.', "").lowercase() in AUDIO &&
+                it.modifiedMs >= callStartMs - 5_000L &&
+                it.modifiedMs <= callEndedMs + 30_000L
+        }.maxByOrNull { it.modifiedMs }
+}

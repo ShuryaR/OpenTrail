@@ -85,6 +85,13 @@ data class AuthSession(
             )
 }
 
+/**
+ * Phones whose built-in call recorder is reliable and records both sides, so the app should use its
+ * files by default. The accessibility recorder only hears one side on these.
+ */
+fun oemRecorderDefault(manufacturer: String): Boolean =
+    manufacturer.trim().lowercase() in setOf("samsung")
+
 /** Conversations a rep aims for each day. */
 const val DEFAULT_DAILY_GOAL = 50
 
@@ -144,7 +151,7 @@ class SecureCredentialStore(private val context: Context) {
     val settingsFlow: Flow<AppSettings> = context.oneBookDataStore.data.map { prefs ->
         AppSettings(
             audioSource = AudioSourceOption.fromName(prefs[KEY_AUDIO_SOURCE]),
-            oemWatcherEnabled = prefs[KEY_OEM_WATCHER] ?: false,
+            oemWatcherEnabled = prefs[KEY_OEM_WATCHER] ?: oemRecorderDefault(android.os.Build.MANUFACTURER),
             privacyFilterMode = PrivacyFilterMode.fromName(prefs[KEY_PRIVACY_FILTER]),
             workSimPreference = WorkSimPreference.fromSlot(prefs[KEY_WORK_SIM_SLOT] ?: -1),
             onboardingCompleted = prefs[KEY_ONBOARDING_DONE] ?: false,

@@ -813,9 +813,13 @@ class CrmRepository(
         } else {
             _syncStage.value = "Logging call in Frappe CRM…"
             var logResp = service.createResource("CRM Call Log", fullCrmPayload)
+            var usedMinimalPayload = false
             if (!logResp.isSuccessful && logResp.code() in setOf(400, 417)) {
                 // Retry with minimal core fields in case site customized/removed optional link fields
+                android.util.Log.w("CrmRepository", "full call log refused (${logResp.code()}): " +
+                    extractFrappeError(logResp.code(), logResp.errorBody()?.string()))
                 logResp = service.createResource("CRM Call Log", baseCallPayload)
+                usedMinimalPayload = true
             }
             if (!logResp.isSuccessful && logResp.code() == 404) {
                 // Fallback to classic ERPNext `Call Log` DocType
@@ -846,6 +850,24 @@ class CrmRepository(
                     error("CRM Call Log failed ($errDetail)")
                 }
                 docName = logResp.body()?.data?.str("name").orEmpty()
+                // The minimal payload carries no caller, link or note. Add them now, one field at a
+                // time, so a single refused field cannot leave the call without its owner.
+                if (usedMinimalPayload && docName.isNotBlank()) {
+                    val extras = linkedMapOf<String, Any?>()
+                    if (hasValidUser) extras[if (direction == CallDirection.OUTGOING) "caller" else "receiver"] = user
+                    if (!item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()) {
+                        extras["reference_doctype"] = item.referenceDoctype
+                        extras["reference_docname"] = item.referenceDocname
+                    }
+                    if (!createdNoteDocName.isNullOrBlank()) extras["note"] = createdNoteDocName
+                    for ((field, value) in extras) {
+                        if (field == "reference_docname") continue // sent together with its doctype
+                        val body: Map<String, Any?> = if (field == "reference_doctype")
+                            mapOf(field to value, "reference_docname" to extras["reference_docname"])
+                        else mapOf(field to value)
+                        runCatching { service.updateResource("CRM Call Log", docName, body) }
+                    }
+                }
             }
         }
 
@@ -959,6 +981,21 @@ class CrmRepository(
     }
 
     suspend fun leadStatusOf(docname: String): String? = leadDao.getByName(docname)?.status
+
+    /**
+     * Safety net: every 15 minutes, while online, upload anything still waiting. Without it a run of
+     * failures can push the one-off retry hours into the future (WorkManager backoff reaches 5 h).
+     */
+    fun schedulePeriodicSync() {
+        val request = androidx.work.PeriodicWorkRequestBuilder<CallSyncWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "onebook_call_sync_periodic",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
 
     fun enqueueSyncWorker() {
         val constraints = Constraints.Builder()

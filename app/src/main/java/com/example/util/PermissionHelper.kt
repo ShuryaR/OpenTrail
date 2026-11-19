@@ -18,7 +18,8 @@ data class DeviceHealthStatus(
     val micAndNotificationsGranted: Boolean,
     val accessibilityEnabled: Boolean,
     val batteryOptimizationIgnored: Boolean,
-    val overlayGranted: Boolean
+    val overlayGranted: Boolean,
+    val allFilesAccess: Boolean = true
 ) {
     val allCoreReady: Boolean
         get() = phoneAndCallLogGranted &&
@@ -95,7 +96,8 @@ object PermissionHelper {
             micAndNotificationsGranted = hasMicAndNotificationPermissions(context),
             accessibilityEnabled = isAccessibilityServiceEnabled(context),
             batteryOptimizationIgnored = isBatteryOptimizationIgnored(context),
-            overlayGranted = canDrawOverlays(context)
+            overlayGranted = canDrawOverlays(context),
+            allFilesAccess = hasAllFilesAccess()
         )
     }
 
@@ -124,6 +126,23 @@ object PermissionHelper {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(fallback)
+        }
+    }
+
+    /** True when the app may read other apps' folders such as /Recordings/Call (Android 11+). */
+    fun hasAllFilesAccess(): Boolean =
+        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R ||
+            android.os.Environment.isExternalStorageManager()
+
+    fun openAllFilesAccessSettings(context: Context) {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(intent) }.onFailure {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         }
     }
 

@@ -288,6 +288,17 @@ fun PermissionWizardScreen(
 
                 OemTipsCard(context)
 
+                WizardStepCard(
+                    stepNumber = 6,
+                    title = "Use the phone's own call recorder (Optional)",
+                    description = "Samsung and some other phones record both sides of a call themselves. Allow file access so OneBook can attach that recording, and turn on automatic call recording in the Phone app settings.",
+                    icon = Icons.Filled.Layers,
+                    isGranted = health.allFilesAccess,
+                    actionLabel = "Allow file access",
+                    testTag = "wizard_step_allfiles",
+                    onAction = { PermissionHelper.openAllFilesAccessSettings(context) }
+                )
+
                 SelfTestCard(context, accessibilityReady = health.accessibilityEnabled)
 
                 // VoWiFi Warning Tip

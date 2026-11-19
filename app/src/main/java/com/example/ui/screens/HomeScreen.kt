@@ -122,6 +122,7 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 health = PermissionHelper.checkHealth(context)
                 viewModel.checkRecentUnlogged()
+                com.example.service.RecorderAlert.check(context, afterUpdate = false)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

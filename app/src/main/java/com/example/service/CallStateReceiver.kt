@@ -128,8 +128,20 @@ class CallStateReceiver : BroadcastReceiver() {
                     Log.i(TAG, "call history lookup: ${if (entry == null) "NOT FOUND" else "found on attempt $foundOnAttempt, type=${entry.type}, mapped=${entry.direction}"}, prev=$prevState")
 
                     val settings = app.credentialStore.getSettings()
-                    if (audioPath == null && settings.oemWatcherEnabled) {
-                        audioPath = CallRecorderAccessibilityService.findRecentOemRecording(app, endedAtMs)
+                    // The phone's own recorder hears both sides, so it wins over the accessibility audio.
+                    if (settings.oemWatcherEnabled) {
+                        var oemPath: String? = null
+                        for (attempt in 0 until 4) {
+                            oemPath = CallRecorderAccessibilityService.findRecentOemRecording(app, callStartMs, endedAtMs)
+                            if (oemPath != null) break
+                            delay(1500)
+                        }
+                        Log.i(TAG, "OEM recording: ${if (oemPath != null) "found" else "not found"} " +
+                            "(all-files access=${com.example.util.PermissionHelper.hasAllFilesAccess()})")
+                        if (oemPath != null) {
+                            audioPath?.let { java.io.File(it).delete() }
+                            audioPath = oemPath
+                        }
                     }
 
                     // A type we do not log (voicemail, blocked, answered elsewhere, vendor-specific).

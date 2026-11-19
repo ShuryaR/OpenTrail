@@ -36,6 +36,11 @@ class OneBookApplication : Application() {
         repository = CrmRepository(this, database, credentialStore)
         audioPlaybackManager = AudioPlaybackManager(this, credentialStore)
         createNotificationChannels()
+        // Background upload must never stop the app from starting.
+        runCatching {
+            repository.schedulePeriodicSync()
+            repository.enqueueSyncWorker() // upload anything left over from the last run
+        }
     }
 
     fun triggerPostCallWrapUp(callLogId: Long) {
