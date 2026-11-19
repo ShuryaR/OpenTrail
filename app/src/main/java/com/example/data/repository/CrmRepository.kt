@@ -816,11 +816,27 @@ class CrmRepository(
                 logResp = service.createResource("Call Log", classicPayload)
             }
 
-            if (!logResp.isSuccessful) {
-                val errDetail = extractFrappeError(logResp.code(), logResp.errorBody()?.string())
-                error("CRM Call Log failed ($errDetail)")
-            }
+            if (logResp.code() == 409) {
+                // Already in the CRM: an earlier attempt created it but the phone never saw the reply.
+                // Its name is our call id, so adopt it instead of failing forever, and fill in any
+                // note or link added since.
+                docName = callUniqueId
+                val patch = buildMap<String, Any?> {
+                    if (!createdNoteDocName.isNullOrBlank()) put("note", createdNoteDocName)
+                    if (!uploadedFileUrl.isNullOrBlank()) put("recording_url", uploadedFileUrl)
+                    if (!item.referenceDoctype.isNullOrBlank() && !item.referenceDocname.isNullOrBlank()) {
+                        put("reference_doctype", item.referenceDoctype)
+                        put("reference_docname", item.referenceDocname)
+                    }
+                }
+                if (patch.isNotEmpty()) runCatching { service.updateResource("CRM Call Log", docName, patch) }
+            } else {
+                if (!logResp.isSuccessful) {
+                    val errDetail = extractFrappeError(logResp.code(), logResp.errorBody()?.string())
+                    error("CRM Call Log failed ($errDetail)")
+                }
                 docName = logResp.body()?.data?.str("name").orEmpty()
+            }
         }
 
         // Step 4: Optionally schedule Follow-Up Task
