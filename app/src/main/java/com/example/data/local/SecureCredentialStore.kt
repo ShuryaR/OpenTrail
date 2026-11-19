@@ -86,11 +86,12 @@ data class AuthSession(
 }
 
 /**
- * Phones whose built-in call recorder is reliable and records both sides, so the app should use its
- * files by default. The accessibility recorder only hears one side on these.
+ * Phones whose built-in call recorder records both sides, so the app should use its files by
+ * default (the accessibility recorder only hears one side on these). If the phone saved no file for
+ * a call, the app keeps its own recording, so enabling this is safe.
  */
 fun oemRecorderDefault(manufacturer: String): Boolean =
-    manufacturer.trim().lowercase() in setOf("samsung")
+    manufacturer.trim().lowercase() in setOf("samsung", "oppo", "realme", "xiaomi", "redmi", "poco")
 
 /** Conversations a rep aims for each day. */
 const val DEFAULT_DAILY_GOAL = 50

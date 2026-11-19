@@ -37,6 +37,8 @@ class OemRecordingPickerTest {
     @Test fun samsungUsesItsOwnRecorderByDefaultOthersDoNot() {
         assertTrue(oemRecorderDefault("samsung"))
         assertTrue(oemRecorderDefault("Samsung "))
+        assertTrue(oemRecorderDefault("OPPO"))
+        assertTrue(oemRecorderDefault("Xiaomi"))
         assertFalse(oemRecorderDefault("OnePlus"))
         assertFalse(oemRecorderDefault("Google"))
     }
