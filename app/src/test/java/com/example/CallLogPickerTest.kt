@@ -5,7 +5,9 @@ import com.example.data.local.CallDirection
 import com.example.util.CallLogPicker
 import com.example.util.CallLogRow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CallLogPickerTest {
@@ -20,8 +22,16 @@ class CallLogPickerTest {
         assertEquals(CallDirection.MISSED, CallLogPicker.directionFor(CallLog.Calls.REJECTED_TYPE))
     }
 
-    @Test fun voicemailBlockedAnsweredExternallyAndVendorTypesAreNotLogged() {
-        listOf(CallLog.Calls.VOICEMAIL_TYPE, CallLog.Calls.BLOCKED_TYPE, 7, 27, 99).forEach {
+    @Test fun voicemailBlockedAndAnsweredExternallyAreNotCalls() {
+        listOf(CallLog.Calls.VOICEMAIL_TYPE, CallLog.Calls.BLOCKED_TYPE, CallLog.Calls.ANSWERED_EXTERNALLY_TYPE).forEach {
+            assertTrue("type $it", CallLogPicker.isNotACall(it))
+        }
+    }
+
+    @Test fun vendorTypesAreStillCallsButHaveNoStandardDirection() {
+        // OPPO/ColorOS writes 100 and 101; they must be logged, using the direction seen on the phone.
+        listOf(27, 99, 100, 101, 102).forEach {
+            assertFalse("type $it", CallLogPicker.isNotACall(it))
             assertNull("type $it", CallLogPicker.directionFor(it))
         }
     }

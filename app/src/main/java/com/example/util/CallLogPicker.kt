@@ -14,9 +14,13 @@ data class CallLogRow(
 
 object CallLogPicker {
 
+    /** Voicemail, blocked and "answered on another device" rows are not calls this rep had. */
+    fun isNotACall(type: Int): Boolean = type in NOT_A_CALL
+
     /**
-     * How a call-history type is recorded in the CRM. Null means "do not log": voicemail, blocked,
-     * answered on another device and vendor-specific types are not calls this rep had.
+     * How a standard call-history type is recorded in the CRM. Null means the type is not one of the
+     * standard ones: phone makers add their own (OPPO/ColorOS uses 100 and 101, for example), so the
+     * caller must fall back to what it saw happen on the phone instead of dropping the call.
      */
     fun directionFor(type: Int): CallDirection? = when (type) {
         CallLog.Calls.INCOMING_TYPE -> CallDirection.INCOMING
@@ -39,6 +43,12 @@ object CallLogPicker {
         }
         return fresh.first()
     }
+
+    private val NOT_A_CALL = setOf(
+        CallLog.Calls.VOICEMAIL_TYPE,
+        CallLog.Calls.BLOCKED_TYPE,
+        CallLog.Calls.ANSWERED_EXTERNALLY_TYPE
+    )
 
     private const val START_SLACK_MS = 15_000L
 }

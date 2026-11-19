@@ -144,8 +144,9 @@ class CallStateReceiver : BroadcastReceiver() {
                         }
                     }
 
-                    // A type we do not log (voicemail, blocked, answered elsewhere, vendor-specific).
-                    if (entry != null && entry.direction == null) {
+                    // Voicemail, blocked and answered-elsewhere rows are not calls. Vendor-specific types are
+                    // real calls and fall through to the direction seen on the phone.
+                    if (entry != null && CallLogPicker.isNotACall(entry.type)) {
                         audioPath?.let { java.io.File(it).delete() }
                     } else {
                         val fallbackNumber = activeNumber
